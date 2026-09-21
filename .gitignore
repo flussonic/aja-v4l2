@@ -1,0 +1,14 @@
+*.o
+*.o.cmd
+*.ko
+*.mod
+*.mod.c
+*.cmd
+.*.cmd
+*.order
+*.symvers
+.tmp_versions/
+.cache.mk
+build/
+dist/
+tools/ajav

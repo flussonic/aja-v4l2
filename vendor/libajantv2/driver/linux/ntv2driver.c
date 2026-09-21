@@ -67,6 +67,9 @@
 # include "hevcpublic.h"
 #endif
 #include "ntv2driver.h"
+#if defined(AJV4L2)
+#include "ajv4l2_hook.h"
+#endif
 #include "registerio.h"
 #include "ntv2driverprocamp.h"
 #include "driverdbg.h"
@@ -139,9 +142,11 @@
 /*******************************/
 /* Module macros, params, etc. */
 /*******************************/
+#if !defined(AJV4L2)
 MODULE_AUTHOR("Bill Bowen and Shaun Case and Jeff Coffin");
 
 MODULE_LICENSE("Dual MIT/GPL");
+#endif
 
 // For boards that support a serial port
 // -1 = never make a serial port
@@ -525,7 +530,7 @@ static struct pci_device_id pci_device_id_tab[] =
 	{ 0, 0, 0, 0, 0, 0, 0 }								// Array terminator
 };
 
-#if defined(AJA_CREATE_DEVICE_NODES)
+#if defined(AJA_CREATE_DEVICE_NODES) || defined(AJV4L2)
 MODULE_DEVICE_TABLE(pci, pci_device_id_tab);
 #endif
 
@@ -3318,7 +3323,11 @@ static int __init aja_ntv2_module_init(void)
 	memset(getNTV2ModuleParams(), 0, sizeof(*getNTV2ModuleParams()));
 
 	getNTV2ModuleParams()->name = "ntv2mod";
+#if defined(AJV4L2)
+	getNTV2ModuleParams()->driverName = AJV4L2_DRIVER_NAME;
+#else
 	getNTV2ModuleParams()->driverName = "ajantv2";
+#endif
 
 #if defined(AJA_HEVC)
 	hevc_module_init("hevc");
@@ -3375,6 +3384,9 @@ static int __init aja_ntv2_module_init(void)
 	/* register uart driver */
 	MSG("%s: register uart driver %s\n",
 		getNTV2ModuleParams()->name, getNTV2ModuleParams()->driverName);
+#if defined(AJV4L2)
+	getNTV2ModuleParams()->uart_driver = NULL;
+#else
 	res = uart_register_driver(&ntv2_uart_driver);
 	if (res < 0) {
 		MSG("%s: *error* uart_register_driver failed code %d\n",
@@ -3382,6 +3394,7 @@ static int __init aja_ntv2_module_init(void)
 		goto fail_uart;
 	}
 	getNTV2ModuleParams()->uart_driver = &ntv2_uart_driver;
+#endif
 	getNTV2ModuleParams()->uart_max = NTV2_MAXBOARDS;
 	atomic_set(&getNTV2ModuleParams()->uart_index, 0);
 
@@ -3406,6 +3419,9 @@ static int __init aja_ntv2_module_init(void)
 	// register device with kernel
 	MSG("%s: register chrdev %s\n",
 		getNTV2ModuleParams()->name, getNTV2ModuleParams()->driverName);
+#if defined(AJV4L2)
+	getNTV2ModuleParams()->NTV2Major = 0;
+#else
 	res = register_chrdev(	NTV2_MAJOR,
 							getNTV2ModuleParams()->driverName,
 							&ntv2_fops);
@@ -3417,6 +3433,7 @@ static int __init aja_ntv2_module_init(void)
 	}
 
 	getNTV2ModuleParams()->NTV2Major = res;
+#endif
 
 	// Register the PCI driver.
 	// Note: this calls the probe function.
@@ -3427,7 +3444,9 @@ static int __init aja_ntv2_module_init(void)
 		goto fail_pci;
 	}
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0))
+#if defined(AJV4L2)
+	// no /proc entry: the V4L2 nodes are the only interface
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0))
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,6,0))
 	proc_create( "driver/aja",
 			0 /* default mode */,
@@ -3465,7 +3484,9 @@ fail_pci:
 			getNTV2ModuleParams()->driverName);
 	}
 
+#if !defined(AJV4L2)
 fail_chr:
+#endif
 #if defined(AJA_CREATE_DEVICE_NODES)
 	if (getNTV2ModuleParams()->class)
 	{
@@ -3479,7 +3500,9 @@ fail_class:
 		uart_unregister_driver(getNTV2ModuleParams()->uart_driver);
 	}
 
+#if !defined(AJV4L2)
 fail_uart:
+#endif
 	return res;
 }
 
@@ -4179,8 +4202,14 @@ static int probe(struct pci_dev *pdev, const struct pci_device_id *id)	/* New de
 		getNTV2ModuleParams()->name, deviceNumber);
 #endif
 
+#if defined(AJV4L2)
+	res = ajv4l2_attach(deviceNumber);
+	if (res < 0)
+	{
+		MSG("%s: v4l2 layer attach failed %d\n", ntv2pp->name, res);
+	}
+#endif
 	MSG("%s: probe end\n", ntv2pp->name);
-
 	return 0;
 }
 
@@ -4205,7 +4234,9 @@ static void remove(struct pci_dev *pdev)
 #endif
 
 	MSG("%s: device remove\n", ntv2pp->name);
-
+#if defined(AJV4L2)
+	ajv4l2_detach(deviceNumber);
+#endif
 #if defined(AJA_NTV42)
     ntv42device_state(ntv2pp->ntv42_device, ntv42device_state_disable);
 #endif
@@ -4410,19 +4441,25 @@ static void __exit aja_ntv2_module_cleanup(void)
 
 	unregister_reboot_notifier(&reboot_notifier);
 
+#if !defined(AJV4L2)
 	remove_proc_entry("driver/aja", NULL /* parent dir */);
+#endif
 
 	MSG("%s: unregister the pci driver\n", getNTV2ModuleParams()->name);
    	pci_unregister_driver(&ntv2_driver);
 
+#if !defined(AJV4L2)
 	unregister_chrdev( getNTV2ModuleParams()->NTV2Major, getNTV2ModuleParams()->driverName);
+#endif
     
 #if defined(AJA_CREATE_DEVICE_NODES)
 	class_destroy(getNTV2ModuleParams()->class);
 #endif
 
+#if !defined(AJV4L2)
 	MSG("%s: unregister the uart driver\n", getNTV2ModuleParams()->name);
 	uart_unregister_driver(&ntv2_uart_driver);
+#endif
 
     // clean up any VirtualData nodes that were allocated
     deleteAllVirtualDataNodes();
