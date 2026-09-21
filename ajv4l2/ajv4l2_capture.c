@@ -390,6 +390,9 @@ static void finish_buffer(struct ajv4l2_port *port, struct ajv4l2_buffer *buf,
 
 	dma_sync_single_for_cpu(&port->dev->pdev->dev, port->anc[0].dma, AJV4L2_ANC_FIELD_BYTES, DMA_FROM_DEVICE);
 	dma_sync_single_for_cpu(&port->dev->pdev->dev, port->anc[1].dma, AJV4L2_ANC_FIELD_BYTES, DMA_FROM_DEVICE);
+	dev_dbg(&port->dev->pdev->dev, "SDI %u: anc f1 %u f2 %u bytes, f1 head %*ph\n",
+		port->index + 1, ts->acAncTransferSize, ts->acAncField2TransferSize,
+		12, port->anc[0].buf);
 	anc = vb2_plane_vaddr(vb, SDI_PLANE_ANC);
 	if (anc) {
 		u32 room = vb2_plane_size(vb, SDI_PLANE_ANC);

@@ -100,10 +100,11 @@ void ajv4l2_input_read(struct ajv4l2_port *port, struct ajv4l2_input_state *st)
 	st->locked = !!(status & kRegMaskSDIInLocked);
 	st->vpid_a_valid = !!(status & kRegMaskSDIInVpidValidA);
 	st->vpid_b_valid = !!(status & kRegMaskSDIInVpidValidB);
+	/* The VPID registers hold the four wire bytes in reverse order. */
 	if (st->vpid_a_valid)
-		st->vpid_a = ntv2ReadRegister(ctx, vpid_a_reg[ch]);
+		st->vpid_a = be32_to_cpu(ntv2ReadRegister(ctx, vpid_a_reg[ch]));
 	if (st->vpid_b_valid)
-		st->vpid_b = ntv2ReadRegister(ctx, vpid_b_reg[ch]);
+		st->vpid_b = be32_to_cpu(ntv2ReadRegister(ctx, vpid_b_reg[ch]));
 	crc = ntv2ReadRegister(ctx, rxsdi_crc_reg(ch));
 	st->crc_errors = (crc & 0xffff) + (crc >> 16);
 
