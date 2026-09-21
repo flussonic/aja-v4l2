@@ -471,15 +471,55 @@ static int capture_thread(void *data)
 	return 0;
 }
 
+/*
+ * Frame numbers count frames of the channel's own size, and a single-link
+ * 2160p channel has frames four times the raster of an HD one; the ring of
+ * every port is therefore laid out in HD frames, with room for the 4K case
+ * on cards that take a 12G link into one frame store.
+ */
+static u32 ring_span(const struct ajv4l2_device *dev)
+{
+	return NTV2DeviceCanDo12gRouting(dev->device_id) ? AJV4L2_RING_FRAMES * 4 : AJV4L2_RING_FRAMES;
+}
+
+/*
+ * The core places the extractor's ANC region by the frame size of channel
+ * 1 (5 for the second group) while the DMA reads it by the channel's own,
+ * so ports of one group cannot stream 4K next to HD.
+ */
+static bool raster_conflict(const struct ajv4l2_port *port)
+{
+	const struct ajv4l2_device *dev = port->dev;
+	bool quad = port->mode->flags & AJV4L2_MODE_F_QUAD;
+	unsigned int i, group = port->index / 4;
+
+	for (i = 0; i < dev->num_ports; i++) {
+		const struct ajv4l2_port *other = dev->ports[i];
+
+		if (!other || other == port || !other->streaming || other->index / 4 != group)
+			continue;
+		if (!!(other->mode->flags & AJV4L2_MODE_F_QUAD) != quad)
+			return true;
+	}
+	return false;
+}
+
 int ajv4l2_capture_start(struct ajv4l2_port *port)
 {
 	struct ajv4l2_device *dev = port->dev;
 	NTV2Crosspoint xpt = input_xpt(port->index);
-	u32 first = port->index * AJV4L2_RING_FRAMES, last = first + AJV4L2_RING_FRAMES - 1;
+	bool quad = port->mode->flags & AJV4L2_MODE_F_QUAD;
+	u32 base = port->index * ring_span(dev);
+	u32 first = quad ? base / 4 : base, last = first + AJV4L2_RING_FRAMES - 1;
 	u32 frame_bytes, memory;
 	struct ajv4l2_input_state st;
 	int ret;
 
+	if (raster_conflict(port)) {
+		dev_warn(&dev->pdev->dev, "SDI %u: %s cannot stream next to a %s port of the same group\n",
+			 port->index + 1, quad ? "2160p" : "HD", quad ? "HD" : "2160p");
+		return -EBUSY;
+	}
 	ret = ajv4l2_hw_setup_capture(port);
 	if (ret)
 		return ret;
