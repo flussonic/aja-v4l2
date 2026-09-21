@@ -1,0 +1,81 @@
+# The module is built against the generic kernels of the supported
+# distributions (Debian 12 has the oldest vb2, 6.1); the package is built
+# once and installed into a clean container, where dkms builds the module
+# for the kernel of that container. The user-space capture
+# tool builds in the build container.
+#
+# The runners take tagged jobs only; "sapsan" is a shell executor with
+# Docker on the host, so everything runs through docker run.
+stages: [build, package, upload]
+
+default:
+  tags: [sapsan]
+  interruptible: true
+
+.build:
+  stage: build
+  script:
+    - docker build --build-arg IMAGE=$IMAGE --build-arg HEADERS=$HEADERS -t ajv4l2-build:$CI_JOB_ID .
+    - docker run --rm -v "$PWD:/src" ajv4l2-build:$CI_JOB_ID sh -ec
+        'KVER=$(ls /lib/modules | head -1); make KVER=$KVER; modinfo build/ajv4l2.ko;
+         make -C tools'
+  after_script:
+    - docker rmi -f ajv4l2-build:$CI_JOB_ID
+  artifacts:
+    paths: [build/ajv4l2.ko]
+    expire_in: 1 week
+
+ubuntu-24.04:
+  extends: .build
+  variables: { IMAGE: "ubuntu:24.04", HEADERS: linux-headers-generic }
+
+ubuntu-26.04:
+  extends: .build
+  variables: { IMAGE: "ubuntu:26.04", HEADERS: linux-headers-generic }
+
+debian-12:
+  extends: .build
+  variables: { IMAGE: "debian:12", HEADERS: linux-headers-amd64 }
+
+debian-13:
+  extends: .build
+  variables: { IMAGE: "debian:13", HEADERS: linux-headers-amd64 }
+
+# The .deb, then its installation: dkms in the fresh container must build
+# the module for that container's kernel with nothing but the package.
+deb:
+  stage: package
+  needs: [ubuntu-24.04]
+  script:
+    - docker build -t ajv4l2-build:$CI_JOB_ID .
+    - docker run --rm -v "$PWD:/src" ajv4l2-build:$CI_JOB_ID sh -ec 'rm -rf build; make deb'
+    - docker run --rm -v "$PWD/build:/debs:ro" ubuntu:24.04 sh -ec
+        'export DEBIAN_FRONTEND=noninteractive; apt-get update -q;
+         apt-get install -y -q --no-install-recommends linux-headers-generic ca-certificates;
+         apt-get install -y -q /debs/ajv4l2-dkms_*_all.deb /debs/ajv4l2-dev_*_all.deb;
+         dkms status ajv4l2 | tee /dev/stderr | grep -q installed;
+         modinfo -F version $(find /lib/modules -name ajv4l2.ko);
+         test -f /usr/include/sdi_av.h; test -f /usr/include/ajav.h; cat /etc/modprobe.d/ajv4l2.conf'
+  after_script:
+    - docker rmi -f ajv4l2-build:$CI_JOB_ID
+  artifacts:
+    paths: [build/*.deb]
+    expire_in: 1 month
+
+# apt.flussonic.com, the same way sapsan gets there: master under
+# repo/master, tags under repo/binary. REPOSITORY_SECRET is a CI variable of
+# the project; without it the job is not created. The upload is a signed PUT
+# (packaging/upload.py), not the repository's client: that one leaves a
+# package alone when the server holds a different file of the same name.
+upload-apt:
+  stage: upload
+  needs: [deb]
+  rules:
+    - if: '$REPOSITORY_SECRET && ($CI_COMMIT_BRANCH == "master" || $CI_COMMIT_TAG)'
+  script:
+    - if [ -n "$CI_COMMIT_TAG" ]; then DIR=binary; else DIR=master; fi
+    - docker run --rm -e REPOSITORY_SECRET -v "$PWD:/src:ro" python:3-slim
+        sh -c 'python3 /src/packaging/upload.py "$1" /src/build/*.deb' upload "$DIR"
+  artifacts:
+    paths: [build/*.deb]
+    expire_in: 1 month

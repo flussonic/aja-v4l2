@@ -34,9 +34,16 @@ clean:
 tools:
 	$(MAKE) -C tools
 
-# The one header a client program needs.
+# The headers a client program needs.
 install-header:
+	install -D -m 0644 include/sdi_av.h $(DESTDIR)$(PREFIX)/include/sdi_av.h
 	install -D -m 0644 include/ajav.h $(DESTDIR)$(PREFIX)/include/ajav.h
+
+deb: version-check
+	dpkg-buildpackage -us -uc -b
+	@mkdir -p $(BUILD) && mv ../ajv4l2-dkms_$(AJV4L2_VERSION)_all.deb ../ajv4l2-dev_$(AJV4L2_VERSION)_all.deb $(BUILD)/
+	@rm -f ../ajv4l2_$(AJV4L2_VERSION)_*.buildinfo ../ajv4l2_$(AJV4L2_VERSION)_*.changes
+	@ls -la $(BUILD)/*.deb
 
 version-check:
 	@dkms=$$(sed -n 's/^PACKAGE_VERSION="\(.*\)"/\1/p' dkms.conf); \

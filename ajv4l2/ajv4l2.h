@@ -156,6 +156,7 @@ struct ajv4l2_device {
 
 	struct v4l2_device v4l2_dev;
 	struct media_device mdev;
+	struct device *hwmon;
 	struct ajv4l2_port *ports[AJV4L2_MAX_PORTS];
 	unsigned int num_ports;
 };
@@ -176,6 +177,14 @@ void ajv4l2_input_set_direction(struct ajv4l2_port *port, bool receive);
 void ajv4l2_input_poll_start(struct ajv4l2_port *port);
 void ajv4l2_input_poll_stop(struct ajv4l2_port *port);
 const char *ajv4l2_input_describe(const struct ajv4l2_input_state *st, char *buf, size_t len);
+
+/* ajv4l2_hwmon.c */
+int ajv4l2_hwmon_register(struct ajv4l2_device *dev);
+void ajv4l2_hwmon_unregister(struct ajv4l2_device *dev);
+
+/* ajv4l2_sysfs.c */
+int ajv4l2_sysfs_add(struct ajv4l2_port *port);
+void ajv4l2_sysfs_remove(struct ajv4l2_port *port);
 
 /* ajv4l2_video.c */
 int ajv4l2_video_register(struct ajv4l2_port *port);

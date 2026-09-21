@@ -162,9 +162,12 @@ static int ajv4l2_querycap(struct file *file, void *fh, struct v4l2_capability *
 
 static int ajv4l2_enum_fmt(struct file *file, void *fh, struct v4l2_fmtdesc *f)
 {
+	static const char *const descr[] = { "SDI frame, 4:2:2 8-bit UYVY", "SDI frame, 4:2:2 10-bit v210" };
+
 	if (f->index >= ARRAY_SIZE(ajv4l2_pixfmts))
 		return -EINVAL;
 	f->pixelformat = ajv4l2_pixfmts[f->index];
+	strscpy(f->description, descr[f->index], sizeof(f->description));
 	return 0;
 }
 
@@ -317,6 +320,23 @@ static int ajv4l2_log_status(struct file *file, void *fh)
 	return 0;
 }
 
+/* The one control: whether the receiver sees a carrier, read live. */
+static int ajv4l2_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
+{
+	struct ajv4l2_port *port = container_of(ctrl->handler, struct ajv4l2_port, ctrl_handler);
+	struct ajv4l2_input_state st;
+
+	if (ctrl->id != V4L2_CID_DV_RX_POWER_PRESENT)
+		return -EINVAL;
+	ajv4l2_input_read(port, &st);
+	ctrl->val = st.locked ? 1 : 0;
+	return 0;
+}
+
+static const struct v4l2_ctrl_ops ajv4l2_ctrl_ops = {
+	.g_volatile_ctrl = ajv4l2_g_volatile_ctrl,
+};
+
 static int ajv4l2_subscribe_event(struct v4l2_fh *fh, const struct v4l2_event_subscription *sub)
 {
 	if (sub->type == V4L2_EVENT_SOURCE_CHANGE)
@@ -369,6 +389,7 @@ int ajv4l2_video_register(struct ajv4l2_port *port)
 	struct video_device *vdev = &port->vdev;
 	struct ajv4l2_input_state st;
 	const struct ajv4l2_mode *m;
+	struct v4l2_ctrl *ctrl;
 	char buf[64];
 	int ret;
 
@@ -403,7 +424,11 @@ int ajv4l2_video_register(struct ajv4l2_port *port)
 	if (ret)
 		return ret;
 
-	v4l2_ctrl_handler_init(&port->ctrl_handler, 0);
+	v4l2_ctrl_handler_init(&port->ctrl_handler, 1);
+	ctrl = v4l2_ctrl_new_std(&port->ctrl_handler, &ajv4l2_ctrl_ops,
+				 V4L2_CID_DV_RX_POWER_PRESENT, 0, 1, 0, 0);
+	if (ctrl)
+		ctrl->flags |= V4L2_CTRL_FLAG_VOLATILE | V4L2_CTRL_FLAG_READ_ONLY;
 	ret = port->ctrl_handler.error;
 	if (ret)
 		goto err_ctrl;
@@ -442,6 +467,8 @@ int ajv4l2_video_register(struct ajv4l2_port *port)
 				    MEDIA_LNK_FL_ENABLED | MEDIA_LNK_FL_IMMUTABLE);
 	if (ret)
 		dev_warn(&dev->pdev->dev, "SDI %u: no media link (%d)\n", port->index + 1, ret);
+	if (ajv4l2_sysfs_add(port))
+		dev_warn(&dev->pdev->dev, "SDI %u: no sysfs counters\n", port->index + 1);
 	ajv4l2_input_poll_start(port);
 	dev_info(&dev->pdev->dev, "SDI %u: %s, %s\n", port->index + 1,
 		 video_device_node_name(vdev), ajv4l2_input_describe(&st, buf, sizeof(buf)));
@@ -461,6 +488,7 @@ err_ctrl:
 void ajv4l2_video_unregister(struct ajv4l2_port *port)
 {
 	ajv4l2_input_poll_stop(port);
+	ajv4l2_sysfs_remove(port);
 	video_unregister_device(&port->vdev);
 	media_device_unregister_entity(&port->connector);
 	media_entity_cleanup(&port->connector);

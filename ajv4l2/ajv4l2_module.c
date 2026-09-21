@@ -117,6 +117,8 @@ static int ajv4l2_register(struct ajv4l2_device *dev)
 	ret = media_device_register(&dev->mdev);
 	if (ret)
 		goto err;
+	if (ajv4l2_hwmon_register(dev))
+		dev_warn(&dev->pdev->dev, "no hwmon device\n");
 	return 0;
 err:
 	for (i = 0; i < dev->num_ports; i++) {
@@ -135,6 +137,7 @@ static void ajv4l2_unregister(struct ajv4l2_device *dev)
 {
 	unsigned int i;
 
+	ajv4l2_hwmon_unregister(dev);
 	media_device_unregister(&dev->mdev);
 	for (i = 0; i < dev->num_ports; i++) {
 		if (dev->ports[i]) {
