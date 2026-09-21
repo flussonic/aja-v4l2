@@ -202,7 +202,7 @@ static u32 anc_parse(const u8 *in, u32 in_bytes, u8 *out, u32 out_bytes, bool fi
 	return op;
 }
 
-static bool anc_has_did(const u8 *anc, u32 bytes, u8 did)
+static bool anc_has_packet(const u8 *anc, u32 bytes, u8 did, u8 sdid)
 {
 	u32 off = 0;
 
@@ -212,7 +212,7 @@ static bool anc_has_did(const u8 *anc, u32 bytes, u8 did)
 
 		if (off + len > bytes)
 			break;
-		if (pkt->did == did)
+		if (pkt->did == did && pkt->sdid == sdid)
 			return true;
 		off += len;
 	}
@@ -402,7 +402,7 @@ static void finish_buffer(struct ajv4l2_port *port, struct ajv4l2_buffer *buf,
 		anc_bytes += anc_parse(port->anc[1].buf,
 				       min_t(u32, ts->acAncField2TransferSize, AJV4L2_ANC_FIELD_BYTES),
 				       anc + anc_bytes, room - anc_bytes, true);
-		if (st.vpid_a_valid && !anc_has_did(anc, anc_bytes, 0x41))
+		if (st.vpid_a_valid && !anc_has_packet(anc, anc_bytes, 0x41, 0x01))
 			anc_bytes = anc_put_vpid(anc, anc_bytes, room, st.vpid_a,
 						 port->mode->total_lines);
 	}
