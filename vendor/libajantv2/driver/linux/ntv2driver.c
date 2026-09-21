@@ -3494,7 +3494,9 @@ fail_chr:
 	}
 #endif
 
+#if !defined(AJV4L2)
 fail_class:
+#endif
 	if (getNTV2ModuleParams()->uart_driver)
 	{
 		uart_unregister_driver(getNTV2ModuleParams()->uart_driver);

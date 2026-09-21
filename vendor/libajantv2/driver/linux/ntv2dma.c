@@ -2476,6 +2476,72 @@ int dmaPageRootAdd(ULWord deviceNumber, PDMA_PAGE_ROOT pRoot,
 	return 0;
 }
 
+#if defined(AJV4L2)
+// Add a buffer whose pages are already pinned and mapped for this device
+// (a videobuf2 plane): the entries with a DMA length are copied into a
+// flat array, which is what the descriptor builders index. The buffer is
+// found by dmaPageRootFind under pCookie and used without locking.
+int dmaPageRootAddSg(ULWord deviceNumber, PDMA_PAGE_ROOT pRoot,
+					 PVOID pCookie, ULWord size,
+					 struct scatterlist* pSgList, ULWord numSgs, ULWord direction)
+{
+	PDMA_PAGE_BUFFER pBuffer;
+	struct scatterlist* sg;
+	unsigned long flags;
+	ULWord i, n = 0;
+
+	if ((pRoot == NULL) || (pCookie == NULL) || (size == 0) || (pSgList == NULL) || (numSgs == 0))
+		return -EINVAL;
+
+	pBuffer = (PDMA_PAGE_BUFFER)kzalloc(sizeof(DMA_PAGE_BUFFER), GFP_KERNEL);
+	if (pBuffer == NULL)
+		return -ENOMEM;
+	pBuffer->pSgList = vmalloc(numSgs * sizeof(struct scatterlist));
+	if (pBuffer->pSgList == NULL)
+	{
+		kfree(pBuffer);
+		return -ENOMEM;
+	}
+	sg_init_table(pBuffer->pSgList, numSgs);
+	for_each_sg(pSgList, sg, numSgs, i)
+	{
+		if (sg_dma_len(sg) == 0)
+			continue;
+		sg_set_page(&pBuffer->pSgList[n], sg_page(sg), sg->length, sg->offset);
+		sg_dma_address(&pBuffer->pSgList[n]) = sg_dma_address(sg);
+		sg_dma_len(&pBuffer->pSgList[n]) = sg_dma_len(sg);
+		n++;
+	}
+	if (n == 0)
+	{
+		vfree(pBuffer->pSgList);
+		kfree(pBuffer);
+		return -EINVAL;
+	}
+	sg_mark_end(&pBuffer->pSgList[n - 1]);
+	INIT_LIST_HEAD(&pBuffer->bufferEntry);
+	pBuffer->sgListSize = numSgs;
+	pBuffer->numSgs = n;
+	pBuffer->pUserAddress = pCookie;
+	pBuffer->userSize = size;
+	pBuffer->direction = direction;
+	pBuffer->pageLock = true;
+	pBuffer->sgMap = true;
+	pBuffer->sgHost = true;
+	pBuffer->sgExternal = true;
+
+	spin_lock_irqsave(&pRoot->bufferLock, flags);
+	pBuffer->pPageRoot = pRoot;
+	pBuffer->refCount = 1;
+	pBuffer->lockCount = pRoot->lockCounter++;
+	pBuffer->lockSize = size;
+	pRoot->lockTotalSize += pBuffer->lockSize;
+	list_add_tail(&pBuffer->bufferEntry, &pRoot->bufferHead);
+	spin_unlock_irqrestore(&pRoot->bufferLock, flags);
+	return 0;
+}
+#endif
+
 int dmaPageRootRemove(ULWord deviceNumber, PDMA_PAGE_ROOT pRoot,
 					  PVOID pAddress, ULWord size)
 {
@@ -2888,6 +2954,19 @@ static void dmaPageUnlock(ULWord deviceNumber, PDMA_PAGE_BUFFER pBuffer)
 {
 	int i;
 
+#if defined(AJV4L2)
+	if ((pBuffer != NULL) && pBuffer->sgExternal)
+	{
+		// the scatter list belongs to the V4L2 buffer: nothing to unmap or release
+		pBuffer->sgMap = false;
+		pBuffer->sgHost = false;
+		pBuffer->pUserAddress = NULL;
+		pBuffer->userSize = 0;
+		pBuffer->pageLock = false;
+		pBuffer->numSgs = 0;
+		return;
+	}
+#endif
 	dmaSgUnmap(deviceNumber, pBuffer);
 	
 	if (pBuffer == NULL)

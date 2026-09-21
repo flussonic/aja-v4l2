@@ -31,3 +31,14 @@ vendor's own module without it.
   at the end of `probe`, once the core has brought the card up (interrupts,
   DMA engines and monitors enabled); `ajv4l2_detach(deviceNumber)` at the
   start of `remove`.
+
+## Kernel-owned DMA buffers
+
+- `driver/linux/ntv2dma.c`, `ntv2dma.h` -- `dmaPageRootAddSg` registers a
+  buffer whose pages are already pinned and mapped for the device (a
+  videobuf2 plane, or a kernel bounce buffer) under a cookie address; the
+  entries with a DMA length are copied into the flat array the descriptor
+  builders index, and the buffer is marked `sgExternal`, so that
+  `dmaPageUnlock` neither unmaps it nor releases pages. `dmaTransfer` finds
+  it by the cookie like any locked buffer and never calls
+  `get_user_pages`, which the capture thread, having no mm, could not.

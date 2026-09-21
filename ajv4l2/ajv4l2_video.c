@@ -5,6 +5,7 @@
  */
 #include "ajv4l2.h"
 #include "ajv4l2_capture.h"
+#include "ajav.h"
 
 static const u32 ajv4l2_pixfmts[] = { SDI_PIX_FMT_UYVY, SDI_PIX_FMT_V210 };
 
@@ -43,7 +44,7 @@ void ajv4l2_video_geometry(struct ajv4l2_port *port, u32 pixfmt, const struct aj
 	pix->plane_fmt[SDI_PLANE_VIDEO].sizeimage = row * m->height;
 	pix->plane_fmt[SDI_PLANE_AUDIO].sizeimage = SDI_AUDIO_PLANE_SIZE;
 	pix->plane_fmt[SDI_PLANE_ANC].sizeimage = SDI_ANC_PLANE_SIZE;
-	pix->plane_fmt[SDI_PLANE_META].sizeimage = SDI_META_SIZE;
+	pix->plane_fmt[SDI_PLANE_META].sizeimage = AJAV_META_BYTES;
 	pix->plane_fmt[SDI_PLANE_VBI].sizeimage = SDI_VBI_PLANE_SIZE;
 }
 
@@ -135,6 +136,8 @@ static void ajv4l2_stop_streaming(struct vb2_queue *q)
 
 static const struct vb2_ops ajv4l2_vb2_ops = {
 	.queue_setup = ajv4l2_queue_setup,
+	.buf_init = ajv4l2_capture_buf_init,
+	.buf_cleanup = ajv4l2_capture_buf_cleanup,
 	.buf_prepare = ajv4l2_buf_prepare,
 	.buf_queue = ajv4l2_buf_queue,
 	.start_streaming = ajv4l2_start_streaming,
@@ -373,6 +376,9 @@ int ajv4l2_video_register(struct ajv4l2_port *port)
 	spin_lock_init(&port->qlock);
 	INIT_LIST_HEAD(&port->queued);
 	port->pixfmt = SDI_PIX_FMT_UYVY;
+	ret = ajv4l2_capture_init(port);
+	if (ret)
+		return ret;
 
 	/* A connector of a bidirectional card is an input until told otherwise. */
 	ajv4l2_input_set_direction(port, true);
@@ -461,5 +467,6 @@ void ajv4l2_video_unregister(struct ajv4l2_port *port)
 	media_entity_cleanup(&port->vdev.entity);
 	v4l2_ctrl_handler_free(&port->ctrl_handler);
 	vb2_queue_release(&port->queue);
+	ajv4l2_capture_exit(port);
 	mutex_destroy(&port->lock);
 }

@@ -5,9 +5,10 @@
  * the audio of that frame, the ancillary data packets, the vertical
  * blanking lines and per-frame metadata. This file is the same, byte for
  * byte, in every driver that follows the contract and in the client, so a
- * client reads and writes any card with one piece of code and tells the
- * card, when it must, by QUERYCAP (driver, card, bus_info) and by the media
- * controller -- never by the buffer. Nothing here belongs to one vendor.
+ * client reads and writes any card with one piece of code. Nothing here
+ * belongs to one vendor: the card is named by QUERYCAP (driver, card,
+ * bus_info) and the media controller, and by the vendor tail of the
+ * metadata when it has something of its own to tell.
  *
  * A capture node is VIDEO_CAPTURE_MPLANE, a playout node VIDEO_OUTPUT_MPLANE,
  * both with the same five planes and the same layout of each; ENUM_FMT says
@@ -187,15 +188,23 @@ static inline __u32 sdi_vbi_line(__u32 total_lines, __u32 row)
 }
 
 /*
- * Metadata plane: one struct sdi_meta per frame, SDI_META_SIZE bytes. The
- * plane opens with the magic, so a client can tell the buffer follows this
- * contract without asking QUERYCAP, and the version of the layout. Fields
- * are only ever added into reserved[]; any other change is a new version.
- * Version 4 gave the metadata this common layout with the same magic for
- * every card (its first draft kept three vendor words at the end, 116..127;
- * they are reserved now, and a reader ignores them); version 3 added the
- * VBI plane and took out of the metadata what V4L2 already says about the
- * buffer:
+ * Metadata plane: one struct sdi_meta per frame. The plane opens with the
+ * magic, so a client can tell the buffer follows this contract without
+ * asking QUERYCAP, and the version of the layout. The common part is
+ * exactly SDI_META_SIZE bytes; fields are only ever added into reserved[],
+ * any other change is a new version. Its last three words are the vendor
+ * tail: vendor_magic names the card, a fourcc of the driver's choosing (0
+ * when the card does not name itself); vendor_bytes is the length of the
+ * vendor block that follows the common part (0: no block, and the plane is
+ * exactly SDI_META_SIZE bytes); vendor_version the layout version of that
+ * block. The vendor block is how a card tells what the common part has no
+ * place for: a structure of the driver's own, declared in the driver, not
+ * here, with fields only ever appended; a client reads it only knowing the
+ * (vendor_magic, vendor_version) pair, and no further than it knows. A
+ * client that does not know the pair reads the common part and skips the
+ * block. Version 4 gave the metadata this common layout with one magic for
+ * every card and the vendor tail; version 3 added the VBI plane and took
+ * out of the metadata what V4L2 already says about the buffer:
  *
  *   v4l2_buffer.sequence   the card's frame counter (capture) or the number
  *                          of frames sent before this one, repeats included
@@ -212,20 +221,24 @@ static inline __u32 sdi_vbi_line(__u32 total_lines, __u32 row)
  * own puts 0 in hw_timestamp; a card that does not check line CRCs puts 0 in
  * crc_errors.
  *
- * Output: the client fills magic, version and audio_samples, the rest zero;
- * a plane with another magic or version is not read and the frame goes
+ * Output: the client fills magic, version and audio_samples, the rest zero
+ * (vendor tail included, unless the driver documents a block it takes); a
+ * plane with another magic or version is not read and the frame goes
  * without it (the audio is halved between the fields). On return the driver
  * fills hw_timestamp with the card time at which it took the frame, when the
  * card has a clock.
  */
 #define SDI_META_MAGIC		v4l2_fourcc('S', 'D', 'I', '0') /* an SDI frame by this contract */
 #define SDI_META_VERSION	4
-#define SDI_META_SIZE		128
-#define SDI_META_RESERVED	21
+#define SDI_META_SIZE		128	/* the common part; the vendor block follows it */
+#define SDI_META_RESERVED	18
 
 #define SDI_F_LEVEL_B		(1u << 0) /* 3G input carried as SMPTE 425 level B (two streams in one link), by VPID */
 #define SDI_F_PSF		(1u << 1) /* progressive segmented frame (SMPTE RP 211): two fields of one instant, not to be deinterlaced; by VPID */
 #define SDI_F_RGB		(1u << 2) /* the source carried RGB 4:4:4 (SMPTE 372M/425M), not Y'CbCr 4:2:2; by VPID */
+#define SDI_F_REC2020		(1u << 3) /* colorimetry Rec. 2020 (ST 352 byte 3 bits 5..4 = 2); clear: Rec. 709 or not stated */
+#define SDI_F_HLG		(1u << 4) /* transfer characteristic HLG (ST 352 byte 4 bits 5..4 = 1) */
+#define SDI_F_PQ		(1u << 5) /* transfer characteristic PQ, ST 2084 (ST 352 byte 4 bits 5..4 = 2); HLG and PQ never together, neither: SDR */
 
 struct sdi_meta {
 	__u32 magic;		/* 0:   SDI_META_MAGIC */
@@ -238,11 +251,14 @@ struct sdi_meta {
 	__u32 audio_rate;	/* 36:  rate from the audio control packets, 0 if unknown */
 	__u32 audio_nonpcm;	/* 40:  channels carrying data (SMPTE 337M) rather than PCM */
 	__u32 reserved[SDI_META_RESERVED]; /* 44: future common fields, zero */
+	__u32 vendor_bytes;	/* 116: length of the vendor block right after the common part; 0 if none */
+	__u32 vendor_magic;	/* 120: fourcc naming the card, chosen by the driver; 0 if it does not name itself */
+	__u32 vendor_version;	/* 124: layout version of the vendor block */
 };
 
 #ifndef __cplusplus
 _Static_assert(sizeof(struct sdi_meta) == SDI_META_SIZE,
-	       "sdi_meta must be the SDI_META_SIZE bytes of the contract");
+	       "the common part of sdi_meta must be SDI_META_SIZE bytes");
 #endif
 
 #endif

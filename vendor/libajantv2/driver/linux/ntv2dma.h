@@ -119,6 +119,9 @@ typedef struct _dmaPageBuffer
 	LWord64					lockSize;			// locked bytes
 	bool					rdma;				// use nvidia rdma
     void*                   rdmaContext;        // rdma context
+#if defined(AJV4L2)
+	bool					sgExternal;			// scatter list mapped by someone else (V4L2 layer)
+#endif
 } DMA_PAGE_BUFFER, *PDMA_PAGE_BUFFER;
 
 // dma transfer parameters
@@ -325,6 +328,11 @@ int dmaPageRootInit(ULWord deviceNumber, PDMA_PAGE_ROOT pRoot);
 void dmaPageRootRelease(ULWord deviceNumber, PDMA_PAGE_ROOT pRoot);
 int dmaPageRootAdd(ULWord deviceNumber, PDMA_PAGE_ROOT pRoot,
 				   PVOID pAddress, ULWord size, bool rdma, bool map);
+#if defined(AJV4L2)
+int dmaPageRootAddSg(ULWord deviceNumber, PDMA_PAGE_ROOT pRoot,
+					 PVOID pCookie, ULWord size,
+					 struct scatterlist* pSgList, ULWord numSgs, ULWord direction);
+#endif
 int dmaPageRootRemove(ULWord deviceNumber, PDMA_PAGE_ROOT pRoot,
 					  PVOID pAddress, ULWord size);
 int dmaPageRootPrune(ULWord deviceNumber, PDMA_PAGE_ROOT pRoot, ULWord size);

@@ -72,6 +72,10 @@ struct ajv4l2_mode {
 	u16 width, height, total_lines;
 	u32 fps_num, fps_den;
 	u32 flags;
+	/* what the frame store is told: the global control register fields */
+	NTV2Standard standard;
+	NTV2FrameGeometry geometry;
+	NTV2FrameRate rate;
 };
 
 extern const struct ajv4l2_mode ajv4l2_modes[];
@@ -121,6 +125,12 @@ struct ajv4l2_port {
 	struct delayed_work poll_work;
 
 	/* capture engine */
+	DMA_PAGE_ROOT page_root;	/* the planes of every buffer, as the core's DMA sees them */
+	struct ajv4l2_anc_bounce {	/* the extractor's bytes, one per field */
+		u8 *buf;
+		dma_addr_t dma;
+		struct scatterlist sg;
+	} anc[2];
 	struct task_struct *thread;
 	bool streaming;
 	u32 sequence;
