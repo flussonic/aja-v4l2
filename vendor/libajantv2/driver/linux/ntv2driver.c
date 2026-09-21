@@ -3381,12 +3381,12 @@ static int __init aja_ntv2_module_init(void)
     ntv2_driver.resume = resume;
     ntv2_driver.shutdown = remove;
 
-	/* register uart driver */
-	MSG("%s: register uart driver %s\n",
-		getNTV2ModuleParams()->name, getNTV2ModuleParams()->driverName);
 #if defined(AJV4L2)
 	getNTV2ModuleParams()->uart_driver = NULL;
 #else
+	/* register uart driver */
+	MSG("%s: register uart driver %s\n",
+		getNTV2ModuleParams()->name, getNTV2ModuleParams()->driverName);
 	res = uart_register_driver(&ntv2_uart_driver);
 	if (res < 0) {
 		MSG("%s: *error* uart_register_driver failed code %d\n",
@@ -3416,12 +3416,12 @@ static int __init aja_ntv2_module_init(void)
 	getNTV2ModuleParams()->class = ntv2_class;
 #endif
 
-	// register device with kernel
-	MSG("%s: register chrdev %s\n",
-		getNTV2ModuleParams()->name, getNTV2ModuleParams()->driverName);
 #if defined(AJV4L2)
 	getNTV2ModuleParams()->NTV2Major = 0;
 #else
+	// register device with kernel
+	MSG("%s: register chrdev %s\n",
+		getNTV2ModuleParams()->name, getNTV2ModuleParams()->driverName);
 	res = register_chrdev(	NTV2_MAJOR,
 							getNTV2ModuleParams()->driverName,
 							&ntv2_fops);

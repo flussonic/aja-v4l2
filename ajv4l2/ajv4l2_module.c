@@ -69,10 +69,89 @@ static void ajv4l2_read_serial(struct ajv4l2_device *dev)
 			*p = '?';
 }
 
+static void ajv4l2_media_init(struct ajv4l2_device *dev)
+{
+	struct media_device *mdev = &dev->mdev;
+	/* The bitfile date as the FPGA reports it: 0xYYYYMMDD in BCD. */
+	u32 fw = ntv2ReadRegister(dev->ctx, kRegBitfileDate);
+
+	mdev->dev = &dev->pdev->dev;
+	strscpy(mdev->model, dev->model, sizeof(mdev->model));
+	strscpy(mdev->serial, dev->serial, sizeof(mdev->serial));
+	snprintf(mdev->bus_info, sizeof(mdev->bus_info), "PCI:%s", pci_name(dev->pdev));
+	mdev->hw_revision = fw;
+	media_device_init(mdev);
+	dev->v4l2_dev.mdev = mdev;
+}
+
+/* The V4L2 side of a card: a media device, a v4l2_device and a node per SDI input. */
+static int ajv4l2_register(struct ajv4l2_device *dev)
+{
+	unsigned int i;
+	int ret;
+
+	ajv4l2_media_init(dev);
+	ret = v4l2_device_register(&dev->pdev->dev, &dev->v4l2_dev);
+	if (ret) {
+		media_device_cleanup(&dev->mdev);
+		return ret;
+	}
+	dev->num_ports = min_t(unsigned int, dev->sdi_inputs, AJV4L2_MAX_PORTS);
+	for (i = 0; i < dev->num_ports; i++) {
+		struct ajv4l2_port *port = kzalloc(sizeof(*port), GFP_KERNEL);
+
+		if (!port) {
+			ret = -ENOMEM;
+			goto err;
+		}
+		port->dev = dev;
+		port->index = i;
+		port->channel = (NTV2Channel)i;
+		ret = ajv4l2_video_register(port);
+		if (ret) {
+			kfree(port);
+			goto err;
+		}
+		dev->ports[i] = port;
+	}
+	ret = media_device_register(&dev->mdev);
+	if (ret)
+		goto err;
+	return 0;
+err:
+	for (i = 0; i < dev->num_ports; i++) {
+		if (dev->ports[i]) {
+			ajv4l2_video_unregister(dev->ports[i]);
+			kfree(dev->ports[i]);
+			dev->ports[i] = NULL;
+		}
+	}
+	v4l2_device_unregister(&dev->v4l2_dev);
+	media_device_cleanup(&dev->mdev);
+	return ret;
+}
+
+static void ajv4l2_unregister(struct ajv4l2_device *dev)
+{
+	unsigned int i;
+
+	media_device_unregister(&dev->mdev);
+	for (i = 0; i < dev->num_ports; i++) {
+		if (dev->ports[i]) {
+			ajv4l2_video_unregister(dev->ports[i]);
+			kfree(dev->ports[i]);
+			dev->ports[i] = NULL;
+		}
+	}
+	v4l2_device_unregister(&dev->v4l2_dev);
+	media_device_cleanup(&dev->mdev);
+}
+
 int ajv4l2_attach(unsigned int device_number)
 {
 	struct ajv4l2_device *dev;
 	NTV2PrivateParams *pp;
+	int ret;
 
 	if (device_number >= NTV2_MAXBOARDS)
 		return -EINVAL;
@@ -92,12 +171,18 @@ int ajv4l2_attach(unsigned int device_number)
 	dev->sdi_outputs = NTV2DeviceGetNumVideoOutputs(dev->device_id);
 	dev->channels = NTV2DeviceGetNumVideoChannels(dev->device_id);
 	dev->bidirectional_sdi = NTV2DeviceHasBiDirectionalSDI(dev->device_id);
+	dev->ctx = &pp->systemContext;
 	ajv4l2_read_serial(dev);
 
 	dev_info(&dev->pdev->dev, "%s serial %s: %u SDI in, %u SDI out, %u frame stores%s\n",
 		 dev->model, dev->serial, dev->sdi_inputs, dev->sdi_outputs,
 		 dev->channels, dev->bidirectional_sdi ? ", bidirectional" : "");
 
+	ret = ajv4l2_register(dev);
+	if (ret) {
+		kfree(dev);
+		return ret;
+	}
 	ajv4l2_devices[device_number] = dev;
 	return 0;
 }
@@ -112,6 +197,7 @@ void ajv4l2_detach(unsigned int device_number)
 	if (!dev)
 		return;
 	ajv4l2_devices[device_number] = NULL;
+	ajv4l2_unregister(dev);
 	kfree(dev);
 }
 
