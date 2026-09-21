@@ -9,6 +9,7 @@
  * DMA, the ancillary data into a bounce buffer, from which the extractor's
  * byte stream is turned into the packet records of the contract.
  */
+#include <linux/bitops.h>
 #include <linux/dma-mapping.h>
 #include <linux/ktime.h>
 #include "ajv4l2_capture.h"
@@ -146,7 +147,7 @@ static u16 udw_word(u8 b)
 {
 	u16 w = b;
 
-	if (parity8(b))
+	if (hweight8(b) & 1)
 		w |= 0x100;
 	else
 		w |= 0x200;
