@@ -1,0 +1,4348 @@
+/*
+ * SPDX-License-Identifier: MIT
+ * Copyright (C) 2004 - 2022 AJA Video Systems, Inc.
+ */
+//==========================================================================
+//
+//  ntv2kona.c
+//
+//==========================================================================
+
+#include "ntv2kona.h"
+
+static const uint32_t	gChannelToGlobalControlRegNum []	= {	kRegGlobalControl, kRegGlobalControlCh2, kRegGlobalControlCh3, kRegGlobalControlCh4,
+																kRegGlobalControlCh5, kRegGlobalControlCh6, kRegGlobalControlCh7, kRegGlobalControlCh8, 0};
+static const uint32_t	gChannelToSmpte372RegisterNum[]		= { kRegGlobalControl, kRegGlobalControl, kRegGlobalControl2, kRegGlobalControl2,
+																kRegGlobalControl2, kRegGlobalControl2, kRegGlobalControl2, kRegGlobalControl2, 0 };
+static const uint32_t	gChannelToSmpte372Masks[]			= { kRegMaskSmpte372Enable, kRegMaskSmpte372Enable, kRegMaskSmpte372Enable4, kRegMaskSmpte372Enable4,
+																kRegMaskSmpte372Enable6, kRegMaskSmpte372Enable6, kRegMaskSmpte372Enable8, kRegMaskSmpte372Enable8, 0 };
+static const uint32_t	gChannelToSmpte372Shifts[]			= { kRegShiftSmpte372, kRegShiftSmpte372, kRegShiftSmpte372Enable4, kRegShiftSmpte372Enable4,
+																kRegShiftSmpte372Enable6, kRegShiftSmpte372Enable6, kRegShiftSmpte372Enable8, kRegShiftSmpte372Enable8, 0 };
+static const uint32_t	gChannelToControlRegNum []			= {	kRegCh1Control, kRegCh2Control, kRegCh3Control, kRegCh4Control, kRegCh5Control, kRegCh6Control,
+																kRegCh7Control, kRegCh8Control, 0};
+static const uint32_t	gChannelToOutputFrameRegNum []		= {	kRegCh1OutputFrame, kRegCh2OutputFrame, kRegCh3OutputFrame, kRegCh4OutputFrame,
+																kRegCh5OutputFrame, kRegCh6OutputFrame, kRegCh7OutputFrame, kRegCh8OutputFrame, 0};
+static const uint32_t	gChannelToInputFrameRegNum []		= {	kRegCh1InputFrame, kRegCh2InputFrame, kRegCh3InputFrame, kRegCh4InputFrame,
+																kRegCh5InputFrame, kRegCh6InputFrame, kRegCh7InputFrame, kRegCh8InputFrame, 0};
+static const uint32_t	gChannelToPCIAccessFrameRegNum []	= {	kRegCh1PCIAccessFrame, kRegCh2PCIAccessFrame, kRegCh3PCIAccessFrame, kRegCh4PCIAccessFrame,
+																kRegCh5PCIAccessFrame, kRegCh6PCIAccessFrame, kRegCh7PCIAccessFrame, kRegCh8PCIAccessFrame, 0};
+static const uint32_t	gChannelToSDIOutControlRegNum []	= {	kRegSDIOut1Control, kRegSDIOut2Control, kRegSDIOut3Control, kRegSDIOut4Control,
+																kRegSDIOut5Control, kRegSDIOut6Control, kRegSDIOut7Control, kRegSDIOut8Control, 0};
+static const ULWord		gChannelToSDIInput3GStatusRegNum []	= {	kRegSDIInput3GStatus,		kRegSDIInput3GStatus,		kRegSDIInput3GStatus2,		kRegSDIInput3GStatus2,
+																kRegSDI5678Input3GStatus,	kRegSDI5678Input3GStatus,	kRegSDI5678Input3GStatus,	kRegSDI5678Input3GStatus,	0};
+static const ULWord		gChannelToLevelBMasks[]				= { kRegMaskSDIIn3GbpsSMPTELevelBMode, kRegMaskSDIIn23GbpsSMPTELevelBMode, kRegMaskSDIIn3GbpsSMPTELevelBMode, kRegMaskSDIIn23GbpsSMPTELevelBMode,
+																kRegMaskSDIIn53GbpsSMPTELevelBMode, kRegMaskSDIIn63GbpsSMPTELevelBMode, kRegMaskSDIIn73GbpsSMPTELevelBMode, kRegMaskSDIIn83GbpsSMPTELevelBMode };
+static const ULWord		gChannelToLevelBShifts[]			= { kRegShiftSDIIn3GbpsSMPTELevelBMode, kRegShiftSDIIn23GbpsSMPTELevelBMode, kRegShiftSDIIn3GbpsSMPTELevelBMode, kRegShiftSDIIn23GbpsSMPTELevelBMode,
+																kRegShiftSDIIn53GbpsSMPTELevelBMode, kRegShiftSDIIn63GbpsSMPTELevelBMode, kRegShiftSDIIn73GbpsSMPTELevelBMode, kRegShiftSDIIn83GbpsSMPTELevelBMode };
+static const ULWord		gChannelToInputLevelConversionMasks[]	= { kRegMaskSDIIn1LevelBtoLevelA, kRegMaskSDIIn2LevelBtoLevelA, kRegMaskSDIIn3LevelBtoLevelA, kRegMaskSDIIn4LevelBtoLevelA,
+																	kRegMaskSDIIn5LevelBtoLevelA, kRegMaskSDIIn6LevelBtoLevelA, kRegMaskSDIIn7LevelBtoLevelA, kRegMaskSDIIn8LevelBtoLevelA };
+static const ULWord		gChannelToInputLevelConversionShifts[]	= { kRegShiftSDIIn1LevelBtoLevelA, kRegShiftSDIIn2LevelBtoLevelA, kRegShiftSDIIn3LevelBtoLevelA, kRegShiftSDIIn4LevelBtoLevelA,
+																	kRegShiftSDIIn5LevelBtoLevelA, kRegShiftSDIIn6LevelBtoLevelA, kRegShiftSDIIn7LevelBtoLevelA, kRegShiftSDIIn8LevelBtoLevelA };
+static const ULWord		gChannelToInputStatesRegs[]			= { kRegInputStatus, kRegInputStatus, kRegInputStatus2, kRegInputStatus2,
+																kRegInput56Status, kRegInput56Status, kRegInput78Status, kRegInput78Status };
+static const ULWord		gChannelToInputStatusRateMasks[]	= { kRegMaskInput1FrameRate, kRegMaskInput2FrameRate, kRegMaskInput1FrameRate, kRegMaskInput2FrameRate,
+																kRegMaskInput1FrameRate, kRegMaskInput2FrameRate, kRegMaskInput1FrameRate, kRegMaskInput2FrameRate };
+static const ULWord		gChannelToInputStatusRateShifts[]	= { kRegShiftInput1FrameRate, kRegShiftInput2FrameRate, kRegShiftInput1FrameRate, kRegShiftInput2FrameRate,
+																kRegShiftInput1FrameRate, kRegShiftInput2FrameRate, kRegShiftInput1FrameRate, kRegShiftInput2FrameRate };
+
+static const ULWord		gChannelToInputStatusRateHighMasks[]	= { kRegMaskInput1FrameRateHigh, kRegMaskInput2FrameRateHigh, kRegMaskInput1FrameRateHigh, kRegMaskInput2FrameRateHigh,
+																	kRegMaskInput1FrameRateHigh, kRegMaskInput2FrameRateHigh, kRegMaskInput1FrameRateHigh, kRegMaskInput2FrameRateHigh };
+static const ULWord		gChannelToInputStatusRateHighShifts[]	= { kRegShiftInput1FrameRateHigh, kRegShiftInput2FrameRateHigh, kRegShiftInput1FrameRateHigh, kRegShiftInput2FrameRateHigh,
+																	kRegShiftInput1FrameRateHigh, kRegShiftInput2FrameRateHigh, kRegShiftInput1FrameRateHigh, kRegShiftInput2FrameRateHigh };
+
+static const ULWord		gChannelToScanMasks[]				= { kRegMaskInput1Geometry, kRegMaskInput2Geometry, kRegMaskInput1Geometry, kRegMaskInput2Geometry,
+																kRegMaskInput1Geometry, kRegMaskInput2Geometry, kRegMaskInput1Geometry, kRegMaskInput2Geometry };
+static const ULWord		gChannelToScanShifts[]				= { kRegShiftInput1Geometry, kRegShiftInput2Geometry, kRegShiftInput1Geometry, kRegShiftInput2Geometry,
+																kRegShiftInput1Geometry, kRegShiftInput2Geometry, kRegShiftInput1Geometry, kRegShiftInput2Geometry };
+
+static const ULWord		gChannelToScanHighMasks[]			= {	kRegMaskInput1GeometryHigh, (ULWord)kRegMaskInput2GeometryHigh, kRegMaskInput1GeometryHigh, (ULWord)kRegMaskInput2GeometryHigh,
+																kRegMaskInput1GeometryHigh, (ULWord)kRegMaskInput2GeometryHigh, kRegMaskInput1GeometryHigh, (ULWord)kRegMaskInput2GeometryHigh };
+static const ULWord		gChannelToScanHighShifts[]			= { kRegShiftInput1GeometryHigh, kRegShiftInput2GeometryHigh, kRegShiftInput1GeometryHigh, kRegShiftInput2GeometryHigh,
+																kRegShiftInput1GeometryHigh, kRegShiftInput2GeometryHigh, kRegShiftInput1GeometryHigh, kRegShiftInput2GeometryHigh };
+
+static const ULWord		gChannelToProgressiveMasks[]		= { kRegMaskInput1Progressive, kRegMaskInput2Progressive, kRegMaskInput1Progressive, kRegMaskInput2Progressive,
+																kRegMaskInput1Progressive, kRegMaskInput2Progressive, kRegMaskInput1Progressive, kRegMaskInput2Progressive };
+static const ULWord		gChannelToProgressiveShifts[]		= { kRegShiftInput1Progressive, kRegShiftInput2Progressive, kRegShiftInput1Progressive, kRegShiftInput2Progressive,
+																kRegShiftInput1Progressive, kRegShiftInput2Progressive, kRegShiftInput1Progressive, kRegShiftInput2Progressive };
+static const VirtualRegisterNum		gShadowRegs[]			= {	kVRegVideoFormatCh1, kVRegVideoFormatCh2, kVRegVideoFormatCh3, kVRegVideoFormatCh4,
+																kVRegVideoFormatCh5, kVRegVideoFormatCh6, kVRegVideoFormatCh7, kVRegVideoFormatCh8 };
+
+static const ULWord		gChannelToSDIIn6GModeMask[]			= {	kRegMaskSDIIn16GbpsMode, kRegMaskSDIIn26GbpsMode, kRegMaskSDIIn36GbpsMode, kRegMaskSDIIn46GbpsMode,
+																kRegMaskSDIIn56GbpsMode, kRegMaskSDIIn66GbpsMode, kRegMaskSDIIn76GbpsMode, kRegMaskSDIIn86GbpsMode };
+
+static const ULWord		gChannelToSDIIn6GModeShift[]		= {	kRegShiftSDIIn16GbpsMode, kRegShiftSDIIn26GbpsMode, kRegShiftSDIIn36GbpsMode, kRegShiftSDIIn46GbpsMode,
+																kRegShiftSDIIn56GbpsMode, kRegShiftSDIIn66GbpsMode, kRegShiftSDIIn76GbpsMode, kRegShiftSDIIn86GbpsMode };
+
+static const ULWord		gChannelToSDIIn12GModeMask[]		= {	kRegMaskSDIIn112GbpsMode, kRegMaskSDIIn212GbpsMode , kRegMaskSDIIn312GbpsMode, kRegMaskSDIIn412GbpsMode,
+																kRegMaskSDIIn512GbpsMode, kRegMaskSDIIn612GbpsMode, kRegMaskSDIIn712GbpsMode, (ULWord)kRegMaskSDIIn812GbpsMode };
+
+static const ULWord		gChannelToSDIIn12GModeShift[]		= {	kRegShiftSDIIn112GbpsMode, kRegShiftSDIIn212GbpsMode, kRegShiftSDIIn312GbpsMode, kRegShiftSDIIn412GbpsMode,
+																kRegShiftSDIIn512GbpsMode, kRegShiftSDIIn612GbpsMode, kRegShiftSDIIn712GbpsMode, kRegShiftSDIIn812GbpsMode };
+
+static const ULWord		gChannelToMRRegNum[]				= {	kRegMRQ1Control, kRegMRQ2Control, kRegMRQ3Control, kRegMRQ4Control};
+
+static const ULWord    gChannelToVPIDTransferCharacteristics[] = {	kVRegNTV2VPIDTransferCharacteristics, kVRegNTV2VPIDTransferCharacteristics2, kVRegNTV2VPIDTransferCharacteristics3, kVRegNTV2VPIDTransferCharacteristics4,
+																	kVRegNTV2VPIDTransferCharacteristics5, kVRegNTV2VPIDTransferCharacteristics6, kVRegNTV2VPIDTransferCharacteristics7, kVRegNTV2VPIDTransferCharacteristics8, 0 };
+
+static const ULWord    gChannelToVPIDColorimetry[]			= {	kVRegNTV2VPIDColorimetry, kVRegNTV2VPIDColorimetry2, kVRegNTV2VPIDColorimetry3, kVRegNTV2VPIDColorimetry4,
+																kVRegNTV2VPIDColorimetry5, kVRegNTV2VPIDColorimetry6, kVRegNTV2VPIDColorimetry7, kVRegNTV2VPIDColorimetry8, 0 };
+
+static const ULWord    gChannelToVPIDLuminance[]			= {	kVRegNTV2VPIDLuminance, kVRegNTV2VPIDLuminance, kVRegNTV2VPIDLuminance, kVRegNTV2VPIDLuminance,
+																kVRegNTV2VPIDLuminance, kVRegNTV2VPIDLuminance, kVRegNTV2VPIDLuminance, kVRegNTV2VPIDLuminance, 0 };
+
+static const ULWord	gChannelToSDIOutVPIDRGBRange[] = {	kVRegSDIOutVPIDRGBRange1, kVRegSDIOutVPIDRGBRange2, kVRegSDIOutVPIDRGBRange3, kVRegSDIOutVPIDRGBRange4,
+														kVRegSDIOutVPIDRGBRange5, kVRegSDIOutVPIDRGBRange6, kVRegSDIOutVPIDRGBRange7, kVRegSDIOutVPIDRGBRange8, 0 };
+
+static const ULWord gChannelToSDIOutKeySignal[] = { kVRegSDIOutKeySignal1, kVRegSDIOutKeySignal2, kVRegSDIOutKeySignal3, kVRegSDIOutKeySignal4,
+                                                    kVRegSDIOutKeySignal5, kVRegSDIOutKeySignal6, kVRegSDIOutKeySignal7, kVRegSDIOutKeySignal8 };
+
+// hdmi version 6 mulitple output virtual registers
+static const ULWord gHDMIChannelToOutControlVRegNum [] =	{ kVRegHDMIOutControl1, kVRegHDMIOutControl2, kVRegHDMIOutControl3, kVRegHDMIOutControl4, kVRegHDMIOutControl1, kVRegHDMIOutControl1, kVRegHDMIOutControl1, kVRegHDMIOutControl1 };
+static const ULWord gHDMIChannelToInputStatusVRegNum [] =	{ kVRegHDMIInputStatus1, kVRegHDMIInputStatus2, kVRegHDMIInputStatus3, kVRegHDMIInputStatus4, kVRegHDMIInputStatus1, kVRegHDMIInputStatus1, kVRegHDMIInputStatus1, kVRegHDMIInputStatus1 };
+static const ULWord gHDMIChannelToInputControlVRegNum [] =	{ kVRegHDMIInputControl1, kVRegHDMIInputControl2, kVRegHDMIInputControl3, kVRegHDMIInputControl4, kVRegHDMIInputControl1, kVRegHDMIInputControl1, kVRegHDMIInputControl1, kVRegHDMIInputControl1 };
+static const ULWord gHDMIChannelToOutStatusVRegNum [] =	{ kVRegHDMIOutStatus1, kVRegHDMIOutStatus2, kVRegHDMIOutStatus3, kVRegHDMIOutStatus4, kVRegHDMIOutStatus1, kVRegHDMIOutStatus1, kVRegHDMIOutStatus1, kVRegHDMIOutStatus1 };
+static const ULWord gHDMIChannelToOutHDRGreenPrimaryVRegNum [] =	{ kVRegHDMIOutHDRGreenPrimary1, kVRegHDMIOutHDRGreenPrimary2, kVRegHDMIOutHDRGreenPrimary3, kVRegHDMIOutHDRGreenPrimary4, kVRegHDMIOutHDRGreenPrimary1, kVRegHDMIOutHDRGreenPrimary1, kVRegHDMIOutHDRGreenPrimary1, kVRegHDMIOutHDRGreenPrimary1 };
+static const ULWord gHDMIChannelToOutHDRRedPrimaryVRegNum [] =	{ kVRegHDMIOutHDRRedPrimary1, kVRegHDMIOutHDRRedPrimary2, kVRegHDMIOutHDRRedPrimary3, kVRegHDMIOutHDRRedPrimary4, kVRegHDMIOutHDRRedPrimary1, kVRegHDMIOutHDRRedPrimary1, kVRegHDMIOutHDRRedPrimary1, kVRegHDMIOutHDRRedPrimary1 };
+static const ULWord gHDMIChannelToOutHDRBluePrimaryVRegNum [] =	{ kVRegHDMIOutHDRBluePrimary1, kVRegHDMIOutHDRBluePrimary2, kVRegHDMIOutHDRBluePrimary3, kVRegHDMIOutHDRBluePrimary4, kVRegHDMIOutHDRBluePrimary1, kVRegHDMIOutHDRBluePrimary1, kVRegHDMIOutHDRBluePrimary1, kVRegHDMIOutHDRBluePrimary1 };
+static const ULWord gHDMIChannelToOutHDRWhitePointVRegNum [] =	{ kVRegHDMIOutHDRWhitePoint1, kVRegHDMIOutHDRWhitePoint2, kVRegHDMIOutHDRWhitePoint3, kVRegHDMIOutHDRWhitePoint4, kVRegHDMIOutHDRWhitePoint1, kVRegHDMIOutHDRWhitePoint1, kVRegHDMIOutHDRWhitePoint1, kVRegHDMIOutHDRWhitePoint1 };
+static const ULWord gHDMIChannelToOutHDRMasterLuminanceVRegNum [] =	{ kVRegHDMIOutHDRMasterLuminance1, kVRegHDMIOutHDRMasterLuminance2, kVRegHDMIOutHDRMasterLuminance3, kVRegHDMIOutHDRMasterLuminance4, kVRegHDMIOutHDRMasterLuminance1, kVRegHDMIOutHDRMasterLuminance1, kVRegHDMIOutHDRMasterLuminance1, kVRegHDMIOutHDRMasterLuminance1 };
+static const ULWord gHDMIChannelToOutHDRLightLevelVRegNum [] =	{ kVRegHDMIOutHDRLightLevel1, kVRegHDMIOutHDRLightLevel2, kVRegHDMIOutHDRLightLevel3, kVRegHDMIOutHDRLightLevel4, kVRegHDMIOutHDRLightLevel1, kVRegHDMIOutHDRLightLevel1, kVRegHDMIOutHDRLightLevel1, kVRegHDMIOutHDRLightLevel1 };
+static const ULWord gHDMIChannelToOutHDRControlVRegNum [] =	{ kVRegHDMIOutHDRControl1, kVRegHDMIOutHDRControl2, kVRegHDMIOutHDRControl3, kVRegHDMIOutHDRControl4, kVRegHDMIOutHDRControl1, kVRegHDMIOutHDRControl1, kVRegHDMIOutHDRControl1, kVRegHDMIOutHDRControl1 };
+
+bool IsKonaIPDevice(Ntv2SystemContext* inSystemContext);
+
+#if defined(AJAMacDext)
+bool InitializeNtv2Driver(Ntv2DriverProcessContext* inProcessContext)
+{
+	ntv2Message("-> Enter\n");
+
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(inProcessContext->pSystemContext, kRegBoardID);
+	Ntv2SystemContext* pSystemContext = inProcessContext->pSystemContext;
+	
+	InitializeVirtualRegisters(inProcessContext->pSystemContext);
+
+	if (!IsKonaIPDevice(pSystemContext))
+		ProgramProductCode(pSystemContext);
+	
+	// ready flag needs to be set
+	ntv2WriteRegister(pSystemContext, kVRegStartupStatusFlags, ntv2ReadRegister(pSystemContext, kVRegStartupStatusFlags) | kMaskDesktopDisplayReady);
+
+	InitRP188(pSystemContext);
+	if (NTV2DeviceCanDoCustomAnc(deviceID))
+	{
+		for(int i = 0; i < NTV2DeviceGetNumVideoOutputs(deviceID); i++)
+			EnableAncInserter(pSystemContext, (NTV2Channel)i, false);
+	}
+
+	if (IsKonaIPDevice(pSystemContext))
+		ntv2WriteRegisterMS(pSystemContext, kRegGlobalControl2, 0, kRegMaskPCRReferenceEnable, kRegShiftPCRReferenceEnable);
+	if (NTV2DeviceGetNumVideoChannels(deviceID) > 4)
+		ntv2WriteRegisterMS(pSystemContext, kRegGlobalControl2, 0, kRegMaskRefSource2, kRegShiftRefSource2);
+	ntv2WriteRegisterMS(pSystemContext, kRegGlobalControl, NTV2_REFERENCE_FREERUN, kRegMaskRefSource, kRegShiftRefSource);
+
+	inProcessContext->pBitstream = ntv2_mcap_open(pSystemContext, "ntv2mcap");
+	if (inProcessContext->pBitstream != NULL)
+	{
+		Ntv2Status status = ntv2_mcap_configure(inProcessContext->pBitstream);
+		if (status != NTV2_STATUS_SUCCESS)
+		{
+			ntv2_mcap_close(inProcessContext->pBitstream);
+			inProcessContext->pBitstream = NULL;
+		}
+	}
+
+	// notify startup status
+	ntv2WriteRegister(pSystemContext, kVRegStartupStatusFlags, ntv2ReadRegister(pSystemContext, kVRegStartupStatusFlags) | kMaskStartComplete);
+	
+	ntv2Message("<- Exit\n");
+	return StartDriverProcesses(inProcessContext);
+}
+
+////////////////////////
+//Start/Stop Driver Processes
+bool StartDriverProcesses(Ntv2DriverProcessContext* inProcessContext)
+{
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(inProcessContext->pSystemContext, kRegBoardID);
+	Ntv2SystemContext* pSystemContext = inProcessContext->pSystemContext;
+	ntv2Message("-> Enter\n");
+
+	ntv2WriteRegister(inProcessContext->pSystemContext, kRegVidProc1Control, 0x105);
+	ntv2WriteRegister(inProcessContext->pSystemContext, kRegVidProcXptControl, 0x1010);
+		
+	// initialize lut registers to linear
+	InitLUTRegs(inProcessContext->pSystemContext);
+	
+	Ntv2Status status;
+	
+	#ifdef AJA_GENLOCK
+		// configure genlock monitor
+		if (deviceID == DEVICE_ID_IO4KPLUS)
+		{
+			ntv2Message("Starting Genlock v1\n");
+			inProcessContext->pGenlockMonitor = ntv2_genlock_open(pSystemContext, "ntv2genlock", 0);
+			if (inProcessContext->pGenlockMonitor != NULL)
+			{
+				status = ntv2_genlock_configure(inProcessContext->pGenlockMonitor);
+				if (status != NTV2_STATUS_SUCCESS)
+				{
+					ntv2_genlock_close(inProcessContext->pGenlockMonitor);
+					inProcessContext->pGenlockMonitor = NULL;
+				}
+				else
+				{
+					//This needs to be in the power management enable section but works for now
+					ntv2_genlock_enable(inProcessContext->pGenlockMonitor);
+					inProcessContext->processCount++;
+				}
+			}
+		}
+	
+		if (DEVICE_IS_KONAX(deviceID))
+		{
+			ntv2Message("Starting Genlock v2\n");
+			inProcessContext->pGenlock2Monitor = ntv2_genlock2_open(pSystemContext, "ntv2genlock2", 0);
+			if (inProcessContext->pGenlock2Monitor != NULL)
+			{
+				status = ntv2_genlock2_configure(inProcessContext->pGenlock2Monitor);
+				if (status != NTV2_STATUS_SUCCESS)
+				{
+					ntv2_genlock2_close(inProcessContext->pGenlock2Monitor);
+					inProcessContext->pGenlock2Monitor = NULL;
+				}
+				else
+				{
+					//This needs to be in the power management enable section but works for now
+					ntv2_genlock2_enable(inProcessContext->pGenlock2Monitor);
+					inProcessContext->processCount++;
+				}
+			}
+		}
+	#endif
+	
+	#ifdef AJA_RASTERIZER
+        if (DEVICE_IS_KONAX(deviceID) ||
+            (deviceID == DEVICE_ID_KONAIP_25G) ||
+			(deviceID == DEVICE_ID_KONAIP_25G_8CH))
+		{
+			ntv2Message("Starting Raster Monitor\n");
+			inProcessContext->pRasterMonitor = ntv2_videoraster_open(pSystemContext, "ntv2raster", 0);
+			if (inProcessContext->pRasterMonitor != NULL)
+			{
+				status = ntv2_videoraster_configure(inProcessContext->pRasterMonitor, 0x3400, 64, 
+					(deviceID == DEVICE_ID_KONAIP_25G_8CH) ? 8 : 4);
+				if (status != NTV2_STATUS_SUCCESS)
+				{
+					ntv2_videoraster_close(inProcessContext->pRasterMonitor);
+					inProcessContext->pRasterMonitor = NULL;
+				}
+				else
+				{
+					//This needs to be in the power management enable section but works for now
+					ntv2_videoraster_enable(inProcessContext->pRasterMonitor);
+					inProcessContext->processCount++;
+				}
+			}
+		}
+	#endif
+
+	#ifdef AJA_OUTPUT_SETUP
+		// configure outputs/vpid
+		ntv2Message("Starting Setup Monitor\n");
+		inProcessContext->pSetupMonitor = ntv2_setup_open(pSystemContext, "ntv2setup");
+		if (inProcessContext->pSetupMonitor != NULL)
+		{
+			status = ntv2_setup_configure(inProcessContext->pSetupMonitor);
+			if (status != NTV2_STATUS_SUCCESS)
+			{
+				ntv2_setup_close(inProcessContext->pSetupMonitor);
+				inProcessContext->pSetupMonitor = NULL;
+			}
+			else
+			{
+				//This needs to be in the power management enable section but works for now
+				ntv2_setup_enable(inProcessContext->pSetupMonitor);
+				inProcessContext->processCount++;
+			}
+		}
+	#endif
+	
+	#ifdef AJA_HDMI_IN
+		// configure hdmi input monitor
+		if ((NTV2DeviceGetHDMIVersion(deviceID) == 2 || NTV2DeviceGetHDMIVersion(deviceID) == 3) &&
+			(NTV2DeviceGetNumHDMIVideoInputs(deviceID) > 0))
+			{
+				ntv2Message("Starting HDMI In 1 v1\n");
+				inProcessContext->pHDMIInMonitor[0] = ntv2_hdmiin_open(pSystemContext, "ntv2hdmiin", 0);
+				if (inProcessContext->pHDMIInMonitor[0] != NULL)
+				{
+					if (deviceID == DEVICE_ID_IO4K)
+					{
+						status = ntv2_hdmiin_configure(inProcessContext->pHDMIInMonitor[0], ntv2_edid_type_io4k, 0);
+					}
+					else
+					{
+						status = ntv2_hdmiin_configure(inProcessContext->pHDMIInMonitor[0], ntv2_edid_type_iox3, 0);
+					}
+					if (status != NTV2_STATUS_SUCCESS)
+					{
+						ntv2_hdmiin_close(inProcessContext->pHDMIInMonitor[0]);
+						inProcessContext->pHDMIInMonitor[0] = NULL;
+					}
+					else
+					{
+						//This needs to be in the power management enable section but works for now
+						ntv2_hdmiin_enable(inProcessContext->pHDMIInMonitor[0]);
+						inProcessContext->processCount++;
+					}
+				}
+			}
+
+		// configure hdmi input version 4 monitor
+		if (NTV2DeviceGetHDMIVersion(deviceID) >= 4)
+		{
+			int numHdmiIn = NTV2DeviceGetNumHDMIVideoInputs(deviceID);
+
+			if (numHdmiIn > 0)
+			{
+				ntv2Message("Starting HDMI In 1 v4\n");
+				inProcessContext->pHDMIIn4Monitor[0] = ntv2_hdmiin4_open(pSystemContext, "ntv2hdmiin4", numHdmiIn==1 ? 0 : 1);
+				if (inProcessContext->pHDMIIn4Monitor[0] != NULL)
+				{
+					if (deviceID == DEVICE_ID_IO4KPLUS)
+					{
+						status = ntv2_hdmiin4_configure(inProcessContext->pHDMIIn4Monitor[0], ntv2_edid_type_io4kplus, 0);
+					}
+					else if (deviceID == DEVICE_ID_KONAHDMI)
+					{
+						status = ntv2_hdmiin4_configure(inProcessContext->pHDMIIn4Monitor[0], ntv2_edid_type_konahdmi_20, 0);
+					}
+					else if (DEVICE_IS_KONAX(deviceID))
+					{
+						status = ntv2_hdmiin4_configure(inProcessContext->pHDMIIn4Monitor[0], ntv2_edid_type_konax, 0);
+					}
+					else
+					{
+						status = ntv2_hdmiin4_configure(inProcessContext->pHDMIIn4Monitor[0], ntv2_edid_type_unknown, 0);
+					}
+					if (status != NTV2_STATUS_SUCCESS)
+					{
+						ntv2_hdmiin4_close(inProcessContext->pHDMIIn4Monitor[0]);
+						inProcessContext->pHDMIIn4Monitor[0] = NULL;
+					}
+					else
+					{
+						//This needs to be in the power management enable section but works for now
+						ntv2_hdmiin4_enable(inProcessContext->pHDMIIn4Monitor[0]);
+						inProcessContext->processCount++;
+					}
+				}
+			}
+
+			if (numHdmiIn > 1)    // e.g. KonaHDMI
+			{
+				ntv2Message("Starting HDMI In 2 v4\n");
+				inProcessContext->pHDMIIn4Monitor[1] = ntv2_hdmiin4_open(pSystemContext, "ntv2hdmi4in", 2);
+				if (inProcessContext->pHDMIIn4Monitor[1] != NULL)
+				{
+					status = ntv2_hdmiin4_configure(inProcessContext->pHDMIIn4Monitor[1], ntv2_edid_type_konahdmi_20, 1);
+					if (status != NTV2_STATUS_SUCCESS)
+					{
+						ntv2_hdmiin4_close(inProcessContext->pHDMIIn4Monitor[1]);
+						inProcessContext->pHDMIIn4Monitor[1] = NULL;
+					}
+					else
+					{
+						//This needs to be in the power management enable section but works for now
+						ntv2_hdmiin4_enable(inProcessContext->pHDMIIn4Monitor[1]);
+						inProcessContext->processCount++;
+					}
+				}
+			}
+				
+			if (numHdmiIn > 2)    // e.g. KonaHDMI
+			{
+				ntv2Message("Starting HDMI In 3 v1\n");
+				inProcessContext->pHDMIInMonitor[0] = ntv2_hdmiin_open(pSystemContext, "ntv2hdmiin", 1);
+				if (inProcessContext->pHDMIInMonitor[0] != NULL)
+				{
+					status = ntv2_hdmiin_configure(inProcessContext->pHDMIInMonitor[0], ntv2_edid_type_konahdmi_13, 2);
+					if (status != NTV2_STATUS_SUCCESS)
+					{
+						ntv2_hdmiin_close(inProcessContext->pHDMIInMonitor[0]);
+						inProcessContext->pHDMIInMonitor[0] = NULL;
+					}
+					else
+					{
+						//This needs to be in the power management enable section but works for now
+						ntv2_hdmiin_enable(inProcessContext->pHDMIInMonitor[0]);
+						inProcessContext->processCount++;
+					}
+				}
+			}
+
+			if (numHdmiIn > 3)    // e.g. KonaHDMI
+			{
+				ntv2Message("Starting HDMI In 4 v1\n");
+				inProcessContext->pHDMIInMonitor[1] = ntv2_hdmiin_open(pSystemContext, "ntv2hdmiin", 2);
+				if (inProcessContext->pHDMIInMonitor[1] != NULL)
+				{
+					status = ntv2_hdmiin_configure(inProcessContext->pHDMIInMonitor[1], ntv2_edid_type_konahdmi_13, 3);
+					if (status != NTV2_STATUS_SUCCESS)
+					{
+						ntv2_hdmiin_close(inProcessContext->pHDMIInMonitor[1]);
+						inProcessContext->pHDMIInMonitor[1] = NULL;
+					}
+					else
+					{
+						//This needs to be in the power management enable section but works for now
+						ntv2_hdmiin_enable(inProcessContext->pHDMIInMonitor[1]);
+						inProcessContext->processCount++;
+					}
+				}
+			}
+		}
+	#endif
+	
+	#ifdef AJA_HDMI_OUT
+		// configure hdmi output version 4 monitor
+		if ((NTV2DeviceGetHDMIVersion(deviceID) >= 4) &&
+			(NTV2DeviceGetNumHDMIVideoOutputs(deviceID) > 0))
+		{
+			ntv2Message("Starting HDMI Out 1 v4\n");
+			inProcessContext->pHDMIOut4Monitor = ntv2_hdmiout4_open(pSystemContext, "ntv2hdmiout4", 0);
+			if (inProcessContext->pHDMIOut4Monitor != NULL)
+			{
+				status = ntv2_hdmiout4_configure(inProcessContext->pHDMIOut4Monitor);
+				if (status != NTV2_STATUS_SUCCESS)
+				{
+					ntv2_hdmiout4_close(inProcessContext->pHDMIOut4Monitor);
+					inProcessContext->pHDMIOut4Monitor = NULL;
+				}
+				else
+				{
+					//This needs to be in the power management enable section but works for now
+					ntv2_hdmiout4_enable(inProcessContext->pHDMIOut4Monitor);
+					inProcessContext->processCount++;
+				}
+			}
+		}
+	#endif
+    
+    #ifdef AJA_MAILBOX
+        // Clear all mailboxes
+        for (int i = 0; i < NTV2_MAX_MAILBOX; i++)
+        {
+            inProcessContext->pMailbox[i] = NULL;
+        }
+        
+        // Open the first mailbox
+        inProcessContext->pMailbox[0] = ntv2_mailbox_open(pSystemContext, "ntv2mailbox", 0);
+        if (inProcessContext->pMailbox[0] != NULL)
+        {
+            status = ntv2_mailbox_configure(inProcessContext->pMailbox[0], 0x100000);
+            if (status != NTV2_STATUS_SUCCESS)
+            {
+                ntv2_mailbox_close(inProcessContext->pMailbox[0]);
+                inProcessContext->pMailbox[0] = NULL;
+            }
+        }
+    #endif
+
+	// Turn on interrupts
+	EnableNtv2Interrupts(inProcessContext->pSystemContext);
+
+	// turn on hdmi chip if needed
+	if (inProcessContext->pHDMIInMonitor[0] || inProcessContext->pHDMIIn4Monitor[0] || inProcessContext->pHDMIOut4Monitor)
+		ntv2WriteRegisterMS(inProcessContext->pSystemContext, kRegHDMIOutControl, 0xC, 0x0F000000, 24);
+		
+	// We are now running and theoretically daemon has initialized us
+	ntv2WriteRegister(inProcessContext->pSystemContext, kVRegStartupStatusFlags, ntv2ReadRegister(inProcessContext->pSystemContext, kVRegStartupStatusFlags) | kMaskDaemonInitialized);
+
+	ntv2Message("<- Exit\n");
+
+	return kIOReturnSuccess;
+
+}    //    StartDriverImmediate
+
+void StopDriverProcesses(Ntv2DriverProcessContext* inProcessContext)
+{
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(inProcessContext->pSystemContext, kRegBoardID);
+	Ntv2SystemContext* pSystemContext = inProcessContext->pSystemContext;
+	kern_return_t ret;
+	
+	ntv2Message("->Enter\n");
+	
+	ntv2Message("Disable Interrupts\n");
+	DisableNtv2Interrupts(pSystemContext);
+
+	if (inProcessContext->pGenlockMonitor != NULL)
+	{
+		ntv2Message("Disable Genlock v1\n");
+		ntv2_genlock_disable(inProcessContext->pGenlockMonitor);
+	}
+
+	if (inProcessContext->pGenlock2Monitor != NULL)
+	{
+		ntv2Message("Disable Genlock v2\n");
+		ntv2_genlock2_disable(inProcessContext->pGenlock2Monitor);
+	}
+	
+	if (inProcessContext->pRasterMonitor != NULL)
+	{
+		ntv2Message("Disable Raster\n");
+		ntv2_videoraster_disable(inProcessContext->pRasterMonitor);
+	}
+
+	for (int i = 0; i < NTV2_MAX_HDMI_MONITOR; i++)
+	{
+		if (inProcessContext->pHDMIInMonitor[i] != NULL)
+		{
+			ntv2Message("Disable HDMI In v1\n");
+			ntv2_hdmiin_disable(inProcessContext->pHDMIInMonitor[i]);
+		}
+		if (inProcessContext->pHDMIIn4Monitor[i] != NULL)
+		{
+			ntv2Message("Disable HDMI In v4\n");
+			ntv2_hdmiin4_disable(inProcessContext->pHDMIIn4Monitor[i]);
+		}
+		if (inProcessContext->pHDMIOut4Monitor != NULL)
+		{
+			ntv2Message("Disable HDMI Out v4\n");
+			ntv2_hdmiout4_disable(inProcessContext->pHDMIOut4Monitor);
+			inProcessContext->pHDMIOut4Monitor = NULL;
+		}
+	}
+
+	if(inProcessContext->pSetupMonitor != NULL)
+	{
+		ntv2Message("Disable Setup\n");
+		ntv2_setup_disable(inProcessContext->pSetupMonitor);
+	}
+
+    for (int i = 0; i < NTV2_MAX_MAILBOX; i++)
+    {
+        ntv2_mailbox_disable(inProcessContext->pMailbox[i]);
+        ntv2_mailbox_close(inProcessContext->pMailbox[i]);
+        inProcessContext->pMailbox[i] = NULL;
+    }
+        
+	ntv2Message("<- Exit\n");
+}
+
+void EnableNtv2Interrupts(Ntv2SystemContext* pSystemContext)
+{
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(pSystemContext, kRegBoardID);
+	uint32_t enableMask = 0;
+	uint32_t enableMask2 = 0;
+	
+	ntv2Message("-> Enter\n");
+
+	if(NTV2DeviceCanDoAudioN(deviceID, 0))
+		enableMask += kIntAudioOutWrapEnable + kIntAudioInWrapEnable+kIntAudioWrapRateEnable;
+	if(NTV2DeviceCanDoRS422N(deviceID, NTV2_CHANNEL1))
+		enableMask += kIntUartTXEnable + kIntUartRXEnable;
+	if(NTV2DeviceCanDoRS422N(deviceID, NTV2_CHANNEL2))
+		enableMask += kIntUart2TXEnable;
+	switch(NTV2DeviceGetNumVideoChannels(deviceID))
+	{
+		case 8:
+			enableMask2 += kIntIn8Enable;
+			if(NTV2DeviceCanDoMultiFormat(deviceID))
+				enableMask2 += kIntOut8Enable;
+		case 7:
+			enableMask2 += kIntIn7Enable;
+			if(NTV2DeviceCanDoMultiFormat(deviceID))
+				enableMask2 += kIntOut7Enable;
+		case 6:
+			enableMask2 += kIntIn6Enable;
+			if(NTV2DeviceCanDoMultiFormat(deviceID))
+				enableMask2 += kIntOut6Enable;
+		case 5:
+			enableMask2 += kIntIn5Enable;
+			if(NTV2DeviceCanDoMultiFormat(deviceID))
+				enableMask2 += kIntOut5Enable;
+		case 4:
+			enableMask2 += kIntIn4Enable;
+			if(NTV2DeviceCanDoMultiFormat(deviceID))
+				enableMask += kIntOut4Enable;
+		case 3:
+			enableMask2 += kIntIn3Enable;
+			if(NTV2DeviceCanDoMultiFormat(deviceID))
+				enableMask += kIntOut3Enable;
+		case 2:
+			enableMask += kIntIn2Enable;
+			if(NTV2DeviceCanDoMultiFormat(deviceID))
+				enableMask += kIntOut2Enable;
+		default:
+		case 1:
+			enableMask += kIntIn1Enable;
+			enableMask += kIntOut1Enable;
+			break;
+	}
+
+	ntv2WriteRegister(pSystemContext, kRegVidIntControl, enableMask);
+
+	if (enableMask2 > 0)
+	{
+		ntv2WriteRegister(pSystemContext, kRegVidIntControl2, enableMask2);
+	}
+
+	// For devices using NWL DMA interface we need to also turn on NWL user interrupts since all VP interrupts go through the user bit.
+	if (NTV2DeviceHasNWL(deviceID) == true)
+	{
+		ntv2WriteRegisterMS(pSystemContext, kRegNwlCommonControlStatus, 1, kRegMaskNwlCommonUserInterruptEnable, kRegShiftNwlCommonUserInterruptEnable);
+		ntv2WriteRegisterMS(pSystemContext, kRegNwlCommonControlStatus, 1, kRegMaskNwlCommonDmaInterruptEnable, kRegShiftNwlCommonDmaInterruptEnable);
+	}
+	else if (NTV2DeviceHasXilinxDMA(deviceID) == true)
+	{
+		EnableXlnxUserInterrupt(pSystemContext, 0);
+	}
+	else
+	{
+		ntv2WriteRegister(pSystemContext, kRegDMAIntControl, kIntDmaEnableMask);
+	}
+	ntv2Message("Interrupts enabled, mask=0x%08x, mask2=0x%08x\n", enableMask, enableMask2);
+	ntv2Message("<- Exit\n");
+}
+
+void DisableNtv2Interrupts(Ntv2SystemContext* pSystemContext)
+{
+	uint32_t disableMask = 0;
+	uint32_t disableMask2 = 0;
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(pSystemContext, kRegBoardID);
+	
+	ntv2Message("-> Enter\n");
+	
+	if(NTV2DeviceCanDoAudioN(deviceID, 0))
+		disableMask += kIntAudioOutWrapEnable + kIntAudioInWrapEnable; // +kIntAudioWrapRateEnable; don't disable wrapRate it upsets CoreAudio
+	if(NTV2DeviceCanDoRS422N(deviceID, NTV2_CHANNEL1))
+		disableMask += kIntUartTXEnable + kIntUartRXEnable;
+	if(NTV2DeviceCanDoRS422N(deviceID, NTV2_CHANNEL2))
+		disableMask += kIntUart2TXEnable;
+	switch(NTV2DeviceGetNumVideoChannels(deviceID))
+	{
+		case 8:
+			disableMask2 += kIntIn8Enable;
+			if(NTV2DeviceCanDoMultiFormat(deviceID))
+				disableMask2 += kIntOut8Enable;
+		case 7:
+			disableMask2 += kIntIn7Enable;
+			if(NTV2DeviceCanDoMultiFormat(deviceID))
+				disableMask2 += kIntOut7Enable;
+		case 6:
+			disableMask2 += kIntIn6Enable;
+			if(NTV2DeviceCanDoMultiFormat(deviceID))
+				disableMask2 += kIntOut6Enable;
+		case 5:
+			disableMask2 += kIntIn5Enable;
+			if(NTV2DeviceCanDoMultiFormat(deviceID))
+				disableMask2 += kIntOut5Enable;
+		case 4:
+			disableMask2 += kIntIn4Enable;
+			if(NTV2DeviceCanDoMultiFormat(deviceID))
+				disableMask += kIntOut4Enable;
+		case 3:
+			disableMask2 += kIntIn3Enable;
+			if(NTV2DeviceCanDoMultiFormat(deviceID))
+				disableMask += kIntOut3Enable;
+		case 2:
+			disableMask += kIntIn2Enable;
+			if(NTV2DeviceCanDoMultiFormat(deviceID))
+				disableMask += kIntOut2Enable;
+		default:
+		case 1:
+			disableMask += kIntIn1Enable;
+			disableMask += kIntOut1Enable;
+			break;
+	}
+
+	ntv2WriteRegisterMS(pSystemContext, kRegVidIntControl, 0, disableMask, 0);
+
+	if (NTV2DeviceGetNumVideoChannels(deviceID) > 2)
+	{
+		ntv2WriteRegisterMS(pSystemContext, kRegVidIntControl2, 0, disableMask2, 0);
+	}
+
+	// For devices using NWL DMA interface we need to also turn on NWL user interrupts since all VP interrupts go through the user bit.
+	if (NTV2DeviceHasNWL(deviceID) == true)
+	{
+		ntv2WriteRegisterMS(pSystemContext, kRegNwlCommonControlStatus, 0, kRegMaskNwlCommonUserInterruptEnable, kRegShiftNwlCommonUserInterruptEnable);
+		ntv2WriteRegisterMS(pSystemContext, kRegNwlCommonControlStatus, 0, kRegMaskNwlCommonDmaInterruptEnable, kRegShiftNwlCommonDmaInterruptEnable);
+	}
+	else if (NTV2DeviceHasXilinxDMA(deviceID) == true)
+	{
+		DisableXlnxUserInterrupt(pSystemContext, 0);
+	}
+	else
+	{
+		ntv2WriteRegisterMS(pSystemContext, kRegDMAIntControl, 0, kIntDmaEnableMask, 0);
+	}
+	ntv2Message("Interrupts disabled, mask=0x%08x, mask2=0x%08x\n", disableMask, disableMask2);
+	ntv2Message("<- Exit\n");
+}
+
+void EnableXlnxUserInterrupt(Ntv2SystemContext* pSystemContext, int inIndex)
+{
+	uint32_t XlnxIrqRegBase = kRegXlnxTargetIRQ * XLNX_REG_TARGET_SIZE;
+	ntv2Message("-> Enter\n");
+	ntv2WriteXlnxRegister(pSystemContext, XlnxIrqRegBase + kRegXlnxIrqUserInterruptEnableW1S, ((uint32_t)0x1 << inIndex));
+	ntv2Message("<- Exit\n");
+}
+
+void DisableXlnxUserInterrupt(Ntv2SystemContext* pSystemContext, int inIndex)
+{
+	uint32_t XlnxIrqRegBase = kRegXlnxTargetIRQ * XLNX_REG_TARGET_SIZE;
+	ntv2Message("-> Enter\n");
+	ntv2WriteXlnxRegister(pSystemContext, XlnxIrqRegBase + kRegXlnxIrqUserInterruptEnableW1C, ((uint32_t)0x1 << inIndex));
+	ntv2Message("<- Exit\n");
+}
+
+void InitializeVirtualRegisters(Ntv2SystemContext* pSystemContext)
+{
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(pSystemContext, kRegBoardID);
+	//	Non-zero virtual registers are initialized here...
+	ULWord vers = NTV2DriverVersionEncode(AJA_NTV2_SDK_VERSION_MAJOR, AJA_NTV2_SDK_VERSION_MINOR, AJA_NTV2_SDK_VERSION_POINT, AJA_NTV2_SDK_BUILD_NUMBER) | NTV2DriverVersionEncodedBuildType;
+	
+	ntv2Message("-> Enter\n");
+	
+	ntv2WriteRegister(pSystemContext, kVRegDriverVersion, vers);
+	ntv2WriteRegister(pSystemContext, kVRegGammaMode, NTV2_GammaAuto);
+	ntv2WriteRegister(pSystemContext, kVRegLUTType, NTV2_LUTUnknown);
+	ntv2WriteRegister(pSystemContext, kVRegRGB10Range, NTV2_RGB10RangeSMPTE);
+	ntv2WriteRegister(pSystemContext, kVRegRGB10Endian, 1);
+	ntv2WriteRegister(pSystemContext, kVRegAudioSyncTolerance, 10000);
+	ntv2WriteRegister(pSystemContext, kVRegDualStreamTransportType, 1);
+	ntv2WriteRegister(pSystemContext, kVRegDSKAudioMode, NTV2_DSKAudioBackground);
+	ntv2WriteRegister(pSystemContext, kVRegCaptureReferenceSelect, kVideoIn);
+	ntv2WriteRegister(pSystemContext, kVRegSDIOutput1RGBRange, NTV2_RGBRangeSMPTE);
+	ntv2WriteRegister(pSystemContext, kVRegSDIInput1RGBRange, NTV2_RGBRangeSMPTE);
+	ntv2WriteRegister(pSystemContext, kVRegSDIInput2RGBRange, NTV2_RGBRangeSMPTE);
+	ntv2WriteRegister(pSystemContext, kVRegSDIInput1Stereo3DMode, NTV2_Stereo3DSideBySide);
+	ntv2WriteRegister(pSystemContext, kVRegSDIInput2Stereo3DMode, NTV2_Stereo3DSideBySide);
+	ntv2WriteRegister(pSystemContext, kVRegFrameBuffer1RGBRange, NTV2_RGBRangeFull);
+	ntv2WriteRegister(pSystemContext, kVRegFrameBuffer1Stereo3DMode, NTV2_Stereo3DSideBySide);
+	ntv2WriteRegister(pSystemContext, kVRegSDIInput1ColorSpaceMode, NTV2_ColorSpaceModeYCbCr);
+	ntv2WriteRegister(pSystemContext, kVRegSDIInput2ColorSpaceMode, NTV2_ColorSpaceModeYCbCr);
+	ntv2WriteRegister(pSystemContext, kVRegSDIOutput2RGBRange, NTV2_RGBRangeSMPTE);
+	ntv2WriteRegister(pSystemContext, kVRegSDIOutput1Stereo3DMode, NTV2_Stereo3DSideBySide);
+	ntv2WriteRegister(pSystemContext, kVRegSDIOutput2Stereo3DMode, NTV2_Stereo3DSideBySide);
+	ntv2WriteRegister(pSystemContext, kVRegFrameBuffer2RGBRange, NTV2_RGBRangeFull);
+	ntv2WriteRegister(pSystemContext, kVRegFrameBuffer2Stereo3DMode, NTV2_Stereo3DSideBySide);
+	ntv2WriteRegister(pSystemContext, kVRegAudioGainDisable, true);
+	ntv2WriteRegister(pSystemContext, kVRegActiveVideoOutFilter, kDropFrameFormats + kNonDropFrameFormats + kEuropeanFormats + k1080ProgressiveFormats + kREDFormats + k2KFormats + k4KFormats);	// Default to all video outs enabled
+	ntv2WriteRegister(pSystemContext, kVRegDeviceOnline, true);
+	ntv2WriteRegister(pSystemContext, kVRegSDIOutput1ColorSpaceMode, NTV2_ColorSpaceModeYCbCr);
+	ntv2WriteRegister(pSystemContext, kVRegSDIOutput2ColorSpaceMode, NTV2_ColorSpaceModeYCbCr);
+	ntv2WriteRegister(pSystemContext, kVRegTimelapseCaptureValue, 1);
+	ntv2WriteRegister(pSystemContext, kVRegTimelapseIntervalValue, 1);
+	ntv2WriteRegister(pSystemContext, kVRegTimelapseIntervalUnits, kTimelapseSeconds);
+	ntv2WriteRegister(pSystemContext, kVRegAnalogInStandard, NTV2_STANDARD_525);
+	ntv2WriteRegister(pSystemContext, kVRegLUT2Type, NTV2_LUTUnknown);
+	ntv2WriteRegister(pSystemContext, kVRegLUT3Type, NTV2_LUTUnknown);
+	ntv2WriteRegister(pSystemContext, kVRegLUT4Type, NTV2_LUTUnknown);
+	ntv2WriteRegister(pSystemContext, kVRegRGBRangeConverterLUTType, NTV2_LUTLinear);
+	ntv2WriteRegister(pSystemContext, kVRegTestPatternChoice, kTestPatternColorBar75);
+	ntv2WriteRegister(pSystemContext, kVRegEveryFrameTaskFilter, NTV2_STANDARD_TASKS);
+	ntv2WriteRegister(pSystemContext, kVRegDefaultInput, 1);
+	ntv2WriteRegister(pSystemContext, kVRegDefaultVideoOutMode, kDefaultModeVideoIn);
+	ntv2WriteRegister(pSystemContext, kVRegDefaultVideoFormat, NTV2_FORMAT_1080i_5994);
+	ntv2WriteRegister(pSystemContext, kVRegLUT5Type, NTV2_LUTUnknown);
+	ntv2WriteRegister(pSystemContext, kVRegEFTNeedsUpdating, true);
+	for(uint32_t i = 0; i < NTV2_MAX_NUM_CHANNELS; i++)
+		ntv2WriteRegister(pSystemContext, kVRegChannelCrosspointFirst+i, NTV2CROSSPOINT_INVALID);
+	ntv2WriteRegister(pSystemContext, kVRegAncField1Offset, ((deviceID == DEVICE_ID_IOIP_2110) || (deviceID == DEVICE_ID_IOIP_2110_RGB12)) ? 0x8000 : 0x4000);
+	ntv2WriteRegister(pSystemContext, kVRegMonAncField1Offset, ((deviceID == DEVICE_ID_IOIP_2110) || (deviceID == DEVICE_ID_IOIP_2110_RGB12)) ? 0x6000 : 0x4000);
+	ntv2WriteRegister(pSystemContext, kVRegAncField2Offset, ((deviceID == DEVICE_ID_IOIP_2110) || (deviceID == DEVICE_ID_IOIP_2110_RGB12)) ? 0x4000 : 0x2000);
+	ntv2WriteRegister(pSystemContext, kVRegMonAncField2Offset, 0x2000);
+	ntv2WriteRegister(pSystemContext, kVRegUseThermostat, 1);	//	Automatic fan control? (0=disabled)
+	ntv2WriteRegister(pSystemContext, kVRegFanSpeed, 50);	//	Default fan speed (percent)
+	ntv2WriteRegister(pSystemContext, kVRegEnableBT2020, 0);
+	ntv2WriteRegister(pSystemContext, kVRegDisableAutoVPID, 0);
+
+	for(uint32_t i = 0; i < 8; i++)
+	{
+		ntv2WriteRegister(pSystemContext, gChannelToVPIDTransferCharacteristics[i], 0);
+		ntv2WriteRegister(pSystemContext, gChannelToVPIDColorimetry[i], 0);
+		ntv2WriteRegister(pSystemContext, gChannelToVPIDLuminance[i], 0);
+        ntv2WriteRegister(pSystemContext, gChannelToSDIOutVPIDRGBRange[i], 0);
+        ntv2WriteRegister(pSystemContext, gChannelToSDIOutKeySignal[i], 0);
+	}
+
+	ntv2WriteRegister(pSystemContext, kVRegBaseFirmwareDeviceID, (uint32_t)deviceID);
+
+	ntv2Message("<- Exit\n");
+}
+#endif
+
+bool IsKonaIPDevice(Ntv2SystemContext* inSystemContext)
+{
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(inSystemContext, kRegBoardID);
+	
+	switch (deviceID)
+	{
+		case DEVICE_ID_KONAIP_2022:
+		case DEVICE_ID_KONAIP_4CH_2SFP:
+		case DEVICE_ID_KONAIP_1RX_1TX_1SFP_J2K:
+		case DEVICE_ID_KONAIP_2TX_1SFP_J2K:
+		case DEVICE_ID_KONAIP_1RX_1TX_2110:
+		case DEVICE_ID_KONAIP_2110:
+		case DEVICE_ID_KONAIP_2110_RGB12:
+		case DEVICE_ID_IOIP_2022:
+		case DEVICE_ID_IOIP_2110:
+		case DEVICE_ID_IOIP_2110_RGB12:
+			return true;
+		default:
+			return false;
+	}
+}
+
+////////////////////////
+//interrupt routines
+bool UpdateAudioMixerGainFromRotaryEncoder(Ntv2SystemContext* context)
+{
+	static uint8_t oldValue = 0;
+	int32_t diffVolume = 0;
+	uint32_t currentValue = 0;
+	//uint32_t gainOverride = ntv2ReadVirtualRegister(context, kVRegRotaryGainOverrideEnable);
+	uint32_t currentAuxGain = 0;
+	//uint32_t currentMixGain = 0;
+	uint8_t diffNew = 0;
+	uint8_t diffOld = 0;
+
+	ntv2ReadRegisterMS(context, kRegRotaryEncoder, &currentValue, kRegMaskRotaryEncoderValue, kRegShiftRotaryEncoderValue);
+	ntv2ReadRegisterMS(context, kRegRotaryEncoder, &currentAuxGain, kRegMaskRotaryEncoderGain, kRegShiftRotaryEncoderGain);
+	//ntv2ReadRegisterMS(context, 0x940, &currentMixGain, gMaskAuxGainValue, gShiftAuxGainValue);
+	diffNew = (uint8_t)(currentValue - oldValue);
+	diffOld = (uint8_t)(oldValue - currentValue);
+	
+	if (diffNew < diffOld)
+		diffVolume  = (currentValue > oldValue)? (int32_t)diffNew : -(int32_t)diffNew;
+	else
+		diffVolume = (oldValue > currentValue)? -(int32_t)diffOld : (int32_t)diffOld;
+	oldValue = (uint8_t)currentValue;
+	
+	if(diffVolume > 0)
+	{
+		ntv2Message("Up diff value: %d gain: %d\n", diffVolume, currentAuxGain);
+		while(diffVolume > 0)
+		{
+			if(currentAuxGain > 0x0)
+				currentAuxGain--;
+			diffVolume--;
+			ntv2Message("Up gain: %d\n", currentAuxGain);
+			ntv2WriteRegisterMS(context, kRegRotaryEncoder, currentAuxGain, kRegMaskRotaryEncoderGain, kRegShiftRotaryEncoderGain);
+		}
+	}	
+	else if(diffVolume < 0)
+	{
+		ntv2Message("Down diff value: %d gain: %d\n", diffVolume, currentAuxGain);
+		while(diffVolume < 0)
+		{
+			if(currentAuxGain < 0x28)
+				currentAuxGain++;
+			diffVolume++;
+			ntv2Message("Down gain: %d\n", currentAuxGain);
+			ntv2WriteRegisterMS(context, kRegRotaryEncoder, currentAuxGain, kRegMaskRotaryEncoderGain, kRegShiftRotaryEncoderGain);
+		}
+	}
+	else
+	{
+		//NoOp
+	}
+	return true;
+}
+
+///////////////////////
+//board format routines
+NTV2VideoFormat GetBoardVideoFormat(Ntv2SystemContext* context, NTV2Channel channel)
+{
+
+	NTV2Standard standard = GetStandard(context, channel);
+	NTV2FrameRate frameRate = GetFrameRate(context, channel);
+	ULWord is2Kx1080 = NTV2_IS_2K_1080_FRAME_GEOMETRY(GetFrameGeometry(context, channel));
+	ULWord smpte372Enabled = GetSmpte372(context, channel)?1:0;
+
+	return GetVideoFormatFromState(standard, frameRate, is2Kx1080, smpte372Enabled);
+}
+
+NTV2Standard GetStandard(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	uint32_t regValue = 0;
+
+	if (!IsMultiFormatActive(context))
+		channel = NTV2_CHANNEL1;
+
+	ntv2ReadRegisterMS(context, gChannelToGlobalControlRegNum[channel], &regValue, kRegMaskStandard, kRegShiftStandard);
+	return (NTV2Standard)regValue;
+}
+
+NTV2FrameGeometry GetFrameGeometry(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	uint32_t regValue = 0;
+
+	if (!IsMultiFormatActive(context))
+		channel = NTV2_CHANNEL1;
+
+	ntv2ReadRegisterMS(context, gChannelToGlobalControlRegNum[channel], &regValue, kRegMaskGeometry, kRegShiftGeometry);
+	return (NTV2FrameGeometry)regValue;
+}
+
+NTV2FrameRate GetFrameRate(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	NTV2FrameRate value = NTV2_FRAMERATE_UNKNOWN;
+	uint32_t regValue = 0;
+	uint32_t regLowBits = 0;
+	uint32_t regHighBit = 0;
+
+	if (!IsMultiFormatActive(context))
+		channel = NTV2_CHANNEL1;
+
+	value = NTV2_FRAMERATE_UNKNOWN;
+	regValue = ntv2ReadRegister(context, gChannelToGlobalControlRegNum[channel]);
+	regLowBits = (regValue & kRegMaskFrameRate) >> kRegShiftFrameRate;
+	regHighBit = (regValue & kRegMaskFrameRateHiBit) >> kRegShiftFrameRateHiBit;
+
+	value = (NTV2FrameRate)((regLowBits & 0x7) | ((regHighBit & 0x1) << 3));
+	return value;
+}
+
+bool IsProgressiveStandard (Ntv2SystemContext* context, NTV2Channel channel)
+{
+	bool smpte372Enabled = false;
+	NTV2Standard standard =	NTV2_STANDARD_INVALID;
+
+	if (!IsMultiFormatActive(context))
+		channel = NTV2_CHANNEL1;
+
+	smpte372Enabled = GetSmpte372(context, channel);
+	standard =	GetStandard(context, channel);
+	return ((NTV2_IS_PROGRESSIVE_STANDARD(standard) || smpte372Enabled) ? true : false);
+}
+
+bool GetSmpte372 (Ntv2SystemContext* context, NTV2Channel channel)
+{
+	uint32_t returnVal = 0;
+
+	if (!IsMultiFormatActive(context))
+		channel = NTV2_CHANNEL1;
+ 
+	ntv2ReadRegisterMS(context, gChannelToSmpte372RegisterNum[channel], &returnVal, gChannelToSmpte372Masks[channel], gChannelToSmpte372Shifts[channel]);
+
+	return (returnVal ? true : false);
+}
+
+bool GetQuadFrameEnable(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	return ((Get4kSquaresEnable(context, channel) || Get425FrameEnable(context, channel)) ? true : false);
+}
+
+bool Get4kSquaresEnable (Ntv2SystemContext* context, NTV2Channel channel)
+{
+	uint32_t squaresEnabled = 0;
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+
+	if(!NTV2DeviceCanDo4KVideo(deviceID))
+		return false;
+
+	if (channel < NTV2_CHANNEL5)
+		ntv2ReadRegisterMS(context, kRegGlobalControl2, &squaresEnabled, kRegMaskQuadMode, kRegShiftQuadMode);
+	else
+		ntv2ReadRegisterMS(context, kRegGlobalControl2, &squaresEnabled, kRegMaskQuadMode2, kRegShiftQuadMode2);
+	return (squaresEnabled ? true : false);
+}
+
+bool Get425FrameEnable (Ntv2SystemContext* context, NTV2Channel channel)
+{
+	uint32_t returnVal = 0;
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+
+	if(!NTV2DeviceCanDo425Mux(deviceID) && !NTV2DeviceCanDo12gRouting(deviceID))
+		return false;
+
+	if (NTV2DeviceCanDo12gRouting(deviceID))
+	{
+		ntv2ReadRegisterMS(context, gChannelToGlobalControlRegNum[channel], &returnVal, kRegMaskQuadTsiEnable, kRegShiftQuadTsiEnable);
+	}
+	else
+	{
+		if (channel < NTV2_CHANNEL3)
+			ntv2ReadRegisterMS(context, kRegGlobalControl2, &returnVal, kRegMask425FB12, kRegShift425FB12);
+		else if (channel < NTV2_CHANNEL5)
+			ntv2ReadRegisterMS(context, kRegGlobalControl2, &returnVal, kRegMask425FB34, kRegShift425FB34);
+		else if (channel < NTV2_CHANNEL7)
+			ntv2ReadRegisterMS(context, kRegGlobalControl2, &returnVal, kRegMask425FB56, kRegShift425FB56);
+		else
+			ntv2ReadRegisterMS(context, kRegGlobalControl2, &returnVal, kRegMask425FB78, kRegShift425FB78);
+	}
+
+	return (returnVal ? true : false);
+}
+
+bool Get12GTSIFrameEnable (Ntv2SystemContext* context, NTV2Channel channel)
+{
+	uint32_t returnVal = 0;
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+
+	if(!NTV2DeviceCanDo12gRouting(deviceID))
+		return false;
+
+	ntv2ReadRegisterMS(context, gChannelToGlobalControlRegNum[channel], &returnVal, kRegMaskQuadTsiEnable, kRegShiftQuadTsiEnable);
+	return (returnVal ? true : false);
+}
+
+bool GetQuadQuadFrameEnable(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	uint32_t outValue = 0;
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+	(void)channel;
+
+	if (NTV2DeviceCanDo8KVideo(deviceID))
+	{
+		ntv2ReadRegisterMS(context, kRegGlobalControl3, &outValue, kRegMaskQuadQuadMode, kRegShiftQuadQuadMode);
+		return (outValue ? true : false);
+	}
+	return false;
+}
+
+bool GetQuadQuadSquaresEnable(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	uint32_t squaresEnabled = 0;
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+	(void)channel;
+
+	if (!NTV2DeviceCanDo8KVideo(deviceID))
+		return false;
+
+	ntv2ReadRegisterMS(context, kRegGlobalControl3, &squaresEnabled, kRegMaskQuadQuadSquaresMode, kRegShiftQuadQuadSquaresMode);
+	return (squaresEnabled ? true : false);
+}
+
+bool IsMultiFormatActive (Ntv2SystemContext* context)
+{
+	uint32_t returnVal = 0;
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+
+	if(!NTV2DeviceCanDoMultiFormat(deviceID))
+		return false;
+	ntv2ReadRegisterMS(context, kRegGlobalControl2, &returnVal, kRegMaskIndependentMode, kRegShiftIndependentMode);
+	return (returnVal ? true : false);
+}
+
+bool GetEnable4KDCPSFOutMode(Ntv2SystemContext* context)
+{
+	uint32_t regValue = 0;
+
+	ntv2ReadRegisterMS(context, kRegDC1, &regValue, kRegMask4KDCPSFOutMode, kRegShift4KDCPSFOutMode);
+	return (regValue == 0 ? false : true);
+}
+
+NTV2FrameBufferFormat GetFrameBufferFormat(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	uint32_t regNum = gChannelToControlRegNum[channel];
+	uint32_t regValue =  ntv2ReadRegister(context, regNum); 
+	uint32_t loValue = (regValue & kRegMaskFrameFormat) >> kRegShiftFrameFormat;
+	uint32_t hiValue = (regValue & kRegMaskFrameFormatHiBit) >> kRegShiftFrameFormatHiBit;
+	uint32_t value = loValue | (hiValue << 4);
+
+	return (NTV2FrameBufferFormat)value;
+}
+
+void SetFrameBufferFormat(Ntv2SystemContext* context, NTV2Channel channel, NTV2FrameBufferFormat value)
+{
+	uint32_t regNum = gChannelToControlRegNum[channel];
+	uint32_t loValue = value & 0x0f;
+	uint32_t hiValue = (value & 0x10) >> 4;
+
+	ntv2WriteRegisterMS(context, regNum, loValue, kRegMaskFrameFormat, kRegShiftFrameFormat);
+	ntv2WriteRegisterMS(context, regNum, hiValue, kRegMaskFrameFormatHiBit, kRegShiftFrameFormatHiBit);
+}
+
+NTV2VideoFrameBufferOrientation GetFrameBufferOrientation(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	uint32_t regNum = gChannelToControlRegNum[channel];
+	uint32_t regValue =  0;
+
+	ntv2ReadRegisterMS(context, regNum, &regValue, kRegMaskFrameOrientation, kRegShiftFrameOrientation);
+	return (NTV2VideoFrameBufferOrientation)regValue;
+}
+
+void SetFrameBufferOrientation(Ntv2SystemContext* context, NTV2Channel channel, NTV2VideoFrameBufferOrientation value)
+{
+	uint32_t regNum = gChannelToControlRegNum[channel];
+
+	ntv2WriteRegisterMS(context, regNum, value, kRegMaskFrameOrientation, kRegShiftFrameOrientation);
+}
+
+bool GetConverterOutStandard(Ntv2SystemContext* context, NTV2Standard* value)
+{
+	return ntv2ReadRegisterMS(context, kRegConversionControl, (ULWord*)value, kK2RegMaskConverterOutStandard, kK2RegShiftConverterOutStandard);
+}
+
+bool ReadFSHDRRegValues(Ntv2SystemContext* context, NTV2Channel channel, HDRDriverValues* hdrRegValues)
+{
+	(void)channel;
+	hdrRegValues->redPrimaryX = (uint16_t)ntv2ReadVirtualRegister(context, kVRegHdrRedXCh1);
+	hdrRegValues->redPrimaryY = (uint16_t)ntv2ReadVirtualRegister(context, kVRegHdrRedYCh1);
+	hdrRegValues->greenPrimaryX = (uint16_t)ntv2ReadVirtualRegister(context, kVRegHdrGreenXCh1);
+	hdrRegValues->greenPrimaryY = (uint16_t)ntv2ReadVirtualRegister(context, kVRegHdrGreenYCh1);
+	hdrRegValues->bluePrimaryX = (uint16_t)ntv2ReadVirtualRegister(context, kVRegHdrBlueXCh1);
+	hdrRegValues->bluePrimaryY = (uint16_t)ntv2ReadVirtualRegister(context, kVRegHdrBlueYCh1);
+	hdrRegValues->whitePointX = (uint16_t)ntv2ReadVirtualRegister(context, kVRegHdrWhiteXCh1);
+	hdrRegValues->whitePointY = (uint16_t)ntv2ReadVirtualRegister(context, kVRegHdrWhiteYCh1);
+	hdrRegValues->minMasteringLuminance = (uint16_t)ntv2ReadVirtualRegister(context, kVRegHdrMasterLumMinCh1);
+	hdrRegValues->maxMasteringLuminance = (uint16_t)ntv2ReadVirtualRegister(context, kVRegHdrMasterLumMaxCh1);
+	hdrRegValues->maxContentLightLevel = (uint16_t)ntv2ReadVirtualRegister(context, kVRegHdrMaxCLLCh1);
+	hdrRegValues->maxFrameAverageLightLevel = (uint16_t)ntv2ReadVirtualRegister(context, kVRegHdrMaxFALLCh1);
+	hdrRegValues->electroOpticalTransferFunction = (uint8_t)ntv2ReadVirtualRegister(context, kVRegHdrTransferCh1);
+	hdrRegValues->staticMetadataDescriptorID = (uint8_t)ntv2ReadVirtualRegister(context, kVRegHdrColorimetryCh1);
+	hdrRegValues->luminance = (uint8_t)ntv2ReadVirtualRegister(context, kVRegHdrLuminanceCh1);
+	//hdrRegValues->electroOpticalTransferFunction = (uint8_t)ntv2ReadVirtualRegister(context, kVRegNTV2VPIDTransferCharacteristics);
+	//hdrRegValues->staticMetadataDescriptorID = (uint8_t)ntv2ReadVirtualRegister(context, kVRegNTV2VPIDColorimetry);
+	//hdrRegValues->luminance = (uint8_t)ntv2ReadVirtualRegister(context, kVRegNTV2VPIDLuminance);
+	return true;
+}
+
+///////////////////////
+NTV2Mode GetMode(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	uint32_t regNum = gChannelToControlRegNum[channel];
+	uint32_t regValue =  0;
+
+	ntv2ReadRegisterMS(context, regNum, &regValue, kRegMaskMode, kRegShiftMode); 
+	return (NTV2Mode)regValue;
+}
+
+void SetMode(Ntv2SystemContext* context, NTV2Channel channel, NTV2Mode value)
+{
+	uint32_t regNum = gChannelToControlRegNum[channel];
+
+	ntv2WriteRegisterMS(context, regNum, value, kRegMaskMode, kRegShiftMode);
+}
+
+ULWord GetOutputFrame(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	uint32_t regNum = gChannelToOutputFrameRegNum[channel];
+
+	return ntv2ReadRegister(context, regNum); 
+}
+
+void SetOutputFrame(Ntv2SystemContext* context, NTV2Channel channel, uint32_t value)
+{
+	uint32_t regNum = gChannelToOutputFrameRegNum[channel];
+
+	ntv2WriteRegister(context, regNum, value);
+}
+
+uint32_t GetInputFrame(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	uint32_t regNum = gChannelToInputFrameRegNum[channel];
+
+	return ntv2ReadRegister(context, regNum); 
+}
+
+void SetInputFrame(Ntv2SystemContext* context, NTV2Channel channel, uint32_t value)
+{
+	uint32_t regNum = gChannelToInputFrameRegNum[channel];
+
+	ntv2WriteRegister(context, regNum, value);
+}
+
+uint32_t GetPCIAccessFrame(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	uint32_t regNum = gChannelToPCIAccessFrameRegNum[channel];
+
+	return ntv2ReadRegister(context, regNum); 
+}
+
+void SetPCIAccessFrame(Ntv2SystemContext* context, NTV2Channel channel, uint32_t value)
+{
+	uint32_t regNum = gChannelToPCIAccessFrameRegNum[channel];
+
+	ntv2WriteRegister(context, regNum, value);
+}
+
+bool Get2piCSC(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	uint32_t returnVal = 0;
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+
+	if (!NTV2DeviceCanDo425Mux(deviceID))
+		return false;
+
+	switch (channel)
+	{
+	case NTV2_CHANNEL1:
+	case NTV2_CHANNEL2:
+	case NTV2_CHANNEL3:
+	case NTV2_CHANNEL4:
+		ntv2ReadRegisterMS(context, kRegCSCoefficients5_6, &returnVal, kK2RegMask2piCSC1, kK2RegMask2piCSC1);
+		break;
+	case NTV2_CHANNEL5:
+	case NTV2_CHANNEL6:
+	case NTV2_CHANNEL7:
+	case NTV2_CHANNEL8:
+		ntv2ReadRegisterMS(context, kRegCS5Coefficients5_6, &returnVal, kK2RegMask2piCSC5, kK2RegShift2piCSC5);
+		break;
+	default:
+		break;
+	}
+	return (returnVal ? true : false);
+}
+
+bool Set2piCSC(Ntv2SystemContext* context, NTV2Channel channel, bool enable)
+{
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+
+	if (!NTV2DeviceCanDo425Mux(deviceID))
+		return false;
+
+	switch (channel)
+	{
+	case NTV2_CHANNEL1:
+	case NTV2_CHANNEL2:
+	case NTV2_CHANNEL3:
+	case NTV2_CHANNEL4:
+		return ntv2WriteRegisterMS(context, kRegCSCoefficients5_6, enable ? 1 : 0, kK2RegMask2piCSC1, kK2RegShift2piCSC1);
+		break;
+	case NTV2_CHANNEL5:
+	case NTV2_CHANNEL6:
+	case NTV2_CHANNEL7:
+	case NTV2_CHANNEL8:
+		return ntv2WriteRegisterMS(context, kRegCS5Coefficients5_6, enable ? 1 : 0, kK2RegMask2piCSC5, kK2RegShift2piCSC5);
+		break;
+	default:
+		return false;
+	}
+}
+
+NTV2FrameBufferFormat GetDualLink5PixelFormat(Ntv2SystemContext* context)
+{
+	uint32_t regValue = ntv2ReadRegister(context, kRegDL5Control); 
+	uint32_t loValue = (regValue & kRegMaskFrameFormat) >> kRegShiftFrameFormat;
+	uint32_t hiValue = (regValue & kRegMaskFrameFormatHiBit) >> kRegShiftFrameFormatHiBit;
+	uint32_t value = loValue | (hiValue << 4);
+
+	return (NTV2FrameBufferFormat)value;
+}
+
+void SetDualLink5PixelFormat(Ntv2SystemContext* context, NTV2FrameBufferFormat value)
+{
+	uint32_t loValue = value & 0x0f;
+	uint32_t hiValue = (value & 0x10) >> 4;
+
+	ntv2WriteRegisterMS(context, kRegDL5Control, loValue, kRegMaskFrameFormat, kRegShiftFrameFormat);
+	ntv2WriteRegisterMS(context, kRegDL5Control, hiValue, kRegMaskFrameFormatHiBit, kRegShiftFrameFormatHiBit);
+}
+
+ULWord GetHWFrameBufferSize(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	ULWord regValue;
+	ULWord size;
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+
+	if(NTV2DeviceCanReportFrameSize(deviceID))
+	{
+		ULWord quadMultiplier = 1;
+		
+		if (GetQuadFrameEnable(context, channel))
+			quadMultiplier = 4;
+		if (GetQuadQuadFrameEnable(context, channel))
+			quadMultiplier = 16;
+		regValue = ntv2ReadRegister(context, kRegCh1Control);
+		regValue &= BIT_20 | BIT_21;
+		switch(regValue)
+		{
+		default:
+		case 0:
+			size = 2*1024*1024*quadMultiplier;
+			break;
+		case BIT_20:
+			size = 4*1024*1024*quadMultiplier;
+			break;
+		case BIT_21:
+			size = 8*1024*1024*quadMultiplier;
+			break;
+		case BIT_20 | BIT_21:
+			size = 16*1024*1024*quadMultiplier;
+			break;
+		}
+		return size;
+	}
+
+	if( !NTV2DeviceSoftwareCanChangeFrameBufferSize(deviceID) )
+		return 0;
+
+	if( GetQuadFrameEnable(context, channel) )
+		return 0;
+
+	regValue  = ntv2ReadRegister(context, kRegCh1Control);
+
+	if( !(regValue & BIT_29) )
+		return 0;
+
+	regValue &= BIT_20 | BIT_21;
+	switch(regValue)
+	{
+	default:
+	case 0:
+		size = 2*1024*1024;
+		break;
+	case BIT_20:
+		size = 4*1024*1024;
+		break;
+	case BIT_21:
+		size = 8*1024*1024;
+		break;
+	case BIT_20 | BIT_21:
+		size = 16*1024*1024;
+		break;
+	}
+	return size;
+}
+
+ULWord GetFrameBufferSize(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	ULWord frameSize1;
+	ULWord frameSize2;
+	ULWord frameBufferSize;
+	NTV2FrameGeometry frameGeometry = GetFrameGeometry(context, NTV2_CHANNEL1);
+	NTV2FrameBufferFormat frameBufferFormat1 = GetFrameBufferFormat(context, NTV2_CHANNEL1);
+	NTV2FrameBufferFormat frameBufferFormat2 = GetFrameBufferFormat(context, NTV2_CHANNEL2);
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+	
+	if(NTV2DeviceCanReportFrameSize(deviceID))
+	{
+		return GetHWFrameBufferSize(context, channel);
+	}
+	else
+	{
+		ULWord fbSize = GetHWFrameBufferSize(context, NTV2_CHANNEL1);
+		if(fbSize)
+			return fbSize;
+
+		if(NTV2DeviceCanDo4KVideo(deviceID))
+		{
+			NTV2FrameBufferFormat frameBufferFormat3, frameBufferFormat4;
+			ULWord frameSize3, frameSize4;
+			ULWord tempSize1, tempSize2;
+			if(GetQuadFrameEnable(context, channel))
+			{
+				//Kludge: For some reason 2048x1080 used a 16M frame size 
+				switch(frameGeometry)
+				{
+				case NTV2_FG_1920x1080:
+					frameGeometry = NTV2_FG_4x1920x1080;
+					break;
+				case NTV2_FG_2048x1080:
+					frameGeometry = NTV2_FG_4x2048x1080;
+					break;
+				default:
+					break;
+				}
+			}
+			frameBufferFormat3 = GetFrameBufferFormat(context, NTV2_CHANNEL3);
+			frameBufferFormat4 = GetFrameBufferFormat(context, NTV2_CHANNEL4);
+			frameSize1 = NTV2DeviceGetFrameBufferSize(deviceID, frameGeometry, frameBufferFormat1);
+			frameSize2 = NTV2DeviceGetFrameBufferSize(deviceID, frameGeometry, frameBufferFormat2);
+			frameSize3 = NTV2DeviceGetFrameBufferSize(deviceID, frameGeometry, frameBufferFormat3);
+			frameSize4 = NTV2DeviceGetFrameBufferSize(deviceID, frameGeometry, frameBufferFormat4);
+			tempSize1 = frameSize1;
+			tempSize2 = frameSize3;
+			if(frameSize2 > frameSize1)
+				tempSize1 = frameSize2;
+			if(frameSize4 > frameSize3)
+				tempSize2 = frameSize4;
+			if(tempSize1 > tempSize2)
+				frameBufferSize = tempSize1;
+			else
+				frameBufferSize = tempSize2;
+
+		}
+		else
+		{
+			frameSize1 = NTV2DeviceGetFrameBufferSize(deviceID, frameGeometry, frameBufferFormat1);
+			frameSize2 = NTV2DeviceGetFrameBufferSize(deviceID, frameGeometry, frameBufferFormat2);
+			frameBufferSize = frameSize1;
+			if(frameSize2 > frameSize1)
+			{
+				frameBufferSize = frameSize2;
+			}
+		}
+	}
+
+	return frameBufferSize;
+}
+
+///////////////////////
+bool FieldDenotesStartOfFrame(Ntv2SystemContext* context, NTV2Crosspoint channelSpec)
+{
+	NTV2Channel channel = NTV2_CHANNEL1;
+	NTV2Standard standard = NTV2_STANDARD_INVALID;
+
+	if(IsMultiFormatActive(context))
+		channel = GetNTV2ChannelForNTV2Crosspoint(channelSpec);
+
+	standard = GetStandard(context, channel);
+	if ( NTV2_IS_PROGRESSIVE_STANDARD(standard))
+	{
+		return true;
+	}
+	else
+		return IsFieldID0(context, channelSpec);
+}
+
+bool IsFieldID0(Ntv2SystemContext* context, NTV2Crosspoint xpt)
+{
+	static uint32_t outRegNum[] = {kRegStatus, kRegStatus,  kRegStatus,  kRegStatus, kRegStatus2, kRegStatus2, kRegStatus2, kRegStatus2, 0};
+	static uint32_t outBit[] = {BIT_23, BIT_5, BIT_3, BIT_1, BIT_9, BIT_7, BIT_5, BIT_3, 0};
+	static uint32_t inRegNum[] = {kRegStatus, kRegStatus, kRegStatus2, kRegStatus2, kRegStatus2, kRegStatus2, kRegStatus2, kRegStatus2, 0};
+	static uint32_t inBit[] = { BIT_21, BIT_19, BIT_21, BIT_19, BIT_17, BIT_15, BIT_13, BIT_11, 0};
+	NTV2Channel xptChannel = GetNTV2ChannelForNTV2Crosspoint(xpt);
+	bool bField0 = true;
+	uint32_t regValue = 0;
+
+	if(NTV2_IS_OUTPUT_CROSSPOINT(xpt))
+	{
+		xptChannel = IsMultiFormatActive(context) ? xptChannel : NTV2_CHANNEL1;
+		regValue = ntv2ReadRegister(context, outRegNum[xptChannel]);
+		bField0 = regValue & outBit[xptChannel] ? false : true;
+	}
+	else
+	{
+		regValue = ntv2ReadRegister(context, inRegNum[xptChannel]);
+		bField0 = regValue & inBit[xptChannel] ? false : true;
+	}
+	return bField0;
+}
+
+bool ProgramProductCode(Ntv2SystemContext* context)
+{
+	// NTV2DeviceHasSPIFlashSerial serial number is stored in the spiflash
+	// read it and put it into the correct registers
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+
+	if (NTV2DeviceHasSPIFlashSerial(deviceID))
+	{
+		bool hasExtendedCommandSupport = false;
+		uint32_t flashDeviceID = 0;
+		int serialSize = 2, i = 0;
+		uint32_t bankSelectNumber = 0x00;
+		uint32_t serialNumber = 0;
+		uint32_t serialRegister = kRegReserved54;
+		uint32_t baseAddress = 0xFC0000; //This is defined in ntv2konaserializer.cpp from classes
+		
+		ntv2WriteRegister(context, kRegXenaxFlashControlStatus, READID_COMMAND);
+		WaitForFlashNOTBusy(context);
+		flashDeviceID = ntv2ReadRegister(context, kRegXenaxFlashDOUT);
+
+		if ((flashDeviceID & 0x00ffffff) == 0x0020ba20)//Micron MT25QL512ABB
+		{
+			hasExtendedCommandSupport = true;
+		}
+
+		if (NTV2DeviceROMHasBankSelect(deviceID))
+		{
+			ntv2WriteRegister(context, kRegXenaxFlashControlStatus, WRITEENABLE_COMMAND);
+			WaitForFlashNOTBusy(context);
+			bankSelectNumber = NTV2DeviceGetSPIFlashVersion(deviceID) >= 5 ? 0x03 : 0x01;
+			ntv2WriteRegister(context, kRegXenaxFlashAddress, bankSelectNumber);
+			ntv2WriteRegister(context, kRegXenaxFlashControlStatus, hasExtendedCommandSupport ? EXTENDEDADDRESS_COMMAND : BANKSELECT_COMMAND);
+			WaitForFlashNOTBusy(context);
+		}
+
+		if (NTV2DeviceGetSPIFlashVersion(deviceID) > 5)
+			serialSize = 4;
+		for (i = 0; i < serialSize; i++, baseAddress += 4, serialRegister++)
+		{
+			serialNumber = 0;
+			ntv2WriteRegister(context, kRegXenaxFlashAddress, baseAddress);
+			ntv2WriteRegister(context, kRegXenaxFlashControlStatus, READFAST_COMMAND);
+			WaitForFlashNOTBusy(context);
+			serialNumber = ntv2ReadRegister(context, kRegXenaxFlashDOUT);
+			//We might have a misprogrammed io4k+ check it
+			if (deviceID == DEVICE_ID_IO4KPLUS && serialNumber == 0xFFFFFFFF)
+			{
+				ntv2Message("CNTV2::InitializeBoard Io4K+ %08X incorrect serial location\n", serialNumber);
+				ntv2WriteRegister(context, kRegXenaxFlashAddress, 0x2);
+				ntv2WriteRegister(context, kRegXenaxFlashControlStatus, hasExtendedCommandSupport ? EXTENDEDADDRESS_COMMAND : BANKSELECT_COMMAND);
+				WaitForFlashNOTBusy(context);
+				ntv2WriteRegister(context, kRegXenaxFlashAddress, baseAddress);
+				ntv2WriteRegister(context, kRegXenaxFlashControlStatus, READFAST_COMMAND);
+				WaitForFlashNOTBusy(context);
+				serialNumber = ntv2ReadRegister(context, kRegXenaxFlashDOUT);
+			}
+			ntv2WriteRegister(context, serialRegister, serialNumber);
+		}
+
+		if (NTV2DeviceROMHasBankSelect(deviceID))
+		{
+			ntv2WriteRegister(context, kRegXenaxFlashControlStatus, WRITEENABLE_COMMAND);
+			WaitForFlashNOTBusy(context);
+			bankSelectNumber = 0x00;
+			ntv2WriteRegister(context, kRegXenaxFlashAddress, bankSelectNumber);
+			ntv2WriteRegister(context, kRegXenaxFlashControlStatus, hasExtendedCommandSupport ? EXTENDEDADDRESS_COMMAND : BANKSELECT_COMMAND);
+			WaitForFlashNOTBusy(context);
+		}
+	}
+	return NTV2DeviceHasSPIFlashSerial(deviceID);
+}
+
+bool WaitForFlashNOTBusy(Ntv2SystemContext* context)
+{
+	bool busy = true;
+	int count = 0;
+	do
+	{
+		ULWord regValue = ntv2ReadRegister(context, kRegXenaxFlashControlStatus);
+		if (regValue & BIT(8))
+			busy = true;
+		else
+			busy = false;
+		ntv2TimeSleep(100);
+		count++;
+	} while ((busy == true) && (count < 100));
+	return count == 100 ? false : true;
+}
+
+bool SetVideoOutputStandard(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	HDRDriverValues hdrRegValues;
+	NTV2OutputXptID xptSelect;
+	NTV2Standard standard = NTV2_NUM_STANDARDS;
+	NTV2VideoFormat videoFormat = NTV2_FORMAT_UNKNOWN;
+	ULWord is3GaMode = 0;
+	ULWord is3GbMode = 0;
+	ULWord isTSIMode = 0;
+	bool is2Kx1080Mode = false;
+	bool enable3Gb = false;
+	bool isQuadMode = false;
+	bool isQuadQuadMode = false;
+	bool isMultiLinkMode = false;
+	bool isMLOut1 = false;
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+
+	if(!FindSDIOutputSource(context, &xptSelect, channel))
+	{
+		if (ntv2ReadVirtualRegister(context, kVRegDisableAutoVPID) == 0)
+			SetSDIOutVPID(context, channel, 0, 0);
+		return false;
+	}
+
+	//ntv2Message("xptSelect = %d\n", xptSelect);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
+	switch(xptSelect)
+	{
+	case NTV2_XptConversionModule:
+		if(!GetConverterOutStandard(context, &standard))
+		{
+			return false;
+		}
+		break;
+	case NTV2_XptMultiLinkOut1DS1:
+	case NTV2_XptMultiLinkOut1DS2:
+	case NTV2_XptMultiLinkOut1DS3:
+	case NTV2_XptMultiLinkOut1DS4:
+		isMLOut1 = true;
+		// fallthrough
+	case NTV2_XptMultiLinkOut2DS1:
+	case NTV2_XptMultiLinkOut2DS2:
+	case NTV2_XptMultiLinkOut2DS3:
+	case NTV2_XptMultiLinkOut2DS4:
+		isMultiLinkMode = true;
+		GetXptMultiLinkOutInputSelect(context, isMLOut1 ? NTV2_CHANNEL1 : NTV2_CHANNEL2, &xptSelect);
+		if(!FindCrosspointSource(context, &xptSelect, xptSelect))
+		{
+			if (ntv2ReadVirtualRegister(context, kVRegDisableAutoVPID) == 0)
+				SetSDIOutVPID(context, channel, 0, 0);
+			return false;
+		}
+		// fallthrough
+	default:
+		if(GetSourceVideoFormat(context, &videoFormat, xptSelect, &isQuadMode, &isQuadQuadMode, &hdrRegValues))
+		{
+			if (videoFormat == NTV2_FORMAT_UNKNOWN)
+			{
+				GetSourceVideoFormat(context, &videoFormat, NTV2_XptBlack, &isQuadMode, &isQuadQuadMode, &hdrRegValues);
+			}
+			standard = GetNTV2StandardFromVideoFormat(videoFormat);
+		}
+		else
+		{
+			return false;
+		}
+	}
+#pragma GCC diagnostic pop
+
+	//ntv2Message("format = %d  standard = %d\n", videoFormat, standard);
+
+	if(standard < NTV2_NUM_STANDARDS)
+	{
+		bool doLevelABConversion = false;
+		bool doRGBLevelAConversion = false;
+
+		is2Kx1080Mode = IsVideoFormat2Kx1080(videoFormat);
+		is3GaMode = NTV2_VIDEO_FORMAT_IS_A(videoFormat);
+		is3GbMode = NTV2_VIDEO_FORMAT_IS_B(videoFormat);
+		isTSIMode = Get425FrameEnable(context, channel);
+		GetSDIOutLevelAtoLevelBConversion(context, channel, &doLevelABConversion);
+		doLevelABConversion = !is3GaMode ? false: doLevelABConversion;
+		GetSDIOutRGBLevelAConversion(context, channel, &doRGBLevelAConversion);
+
+		if (NTV2DeviceCanDo3GOut(deviceID, (UWord)channel) || NTV2DeviceCanDo292Out(deviceID, (UWord)channel) || (channel == NTV2_CHANNEL5 && NTV2DeviceCanDoWidget(deviceID, NTV2_WgtSDIMonOut1)))
+		{
+			if(is3GaMode)
+			{
+				SetSDIOut3GEnable(context, channel, true);
+				if(doLevelABConversion)
+				{
+					SetSDIOut3GbEnable(context, channel, doLevelABConversion);
+					standard = doLevelABConversion?NTV2_STANDARD_1080:standard;
+				}
+				else
+				{
+					if (isTSIMode)
+					{
+						//This is to handle the 425 mux modes
+						//The videoformat is A, but you wire up ds1 and ds2 so...
+						enable3Gb = (GetXptSDIOutDS2InputSelect(context, channel, &xptSelect) && (xptSelect != NTV2_XptBlack)) ? true : false;
+						SetSDIOut3GbEnable(context, channel, enable3Gb);
+					}
+					else
+					{
+						SetSDIOut3GbEnable(context, channel, false);
+					}
+				}
+			}
+			else
+			{
+				if(deviceID == DEVICE_ID_KONALHI)
+				{
+					if(is3GbMode)
+					{
+						SetSDIOut3GEnable(context, channel, true);
+						SetSDIOut3GbEnable(context, channel, true);
+					}
+					else
+					{
+						SetSDIOut3GEnable(context, channel, false);
+						SetSDIOut3GbEnable(context, channel, false);
+					}
+				}
+				else
+				{
+					enable3Gb = (GetXptSDIOutDS2InputSelect(context, channel, &xptSelect) && (xptSelect != NTV2_XptBlack)) ? true : false;
+					SetSDIOut3GEnable(context, channel, enable3Gb);
+					SetSDIOut3GbEnable(context, channel, !doRGBLevelAConversion ? enable3Gb : false);
+				}
+			}
+		}
+
+		if (NTV2DeviceCanDo12GOut(deviceID, (UWord)channel))
+		{
+			if (is3GaMode)
+			{
+				SetSDIOut3GEnable(context, channel, true);
+				if (doLevelABConversion)
+				{
+					SetSDIOut3GbEnable(context, channel, doLevelABConversion);
+					standard = doLevelABConversion ? NTV2_STANDARD_1080 : standard;
+				}
+				else
+				{
+					enable3Gb = (GetXptSDIOutDS2InputSelect(context, channel, &xptSelect) && (xptSelect != NTV2_XptBlack)) ? true : false;
+					SetSDIOut3GbEnable(context, channel, enable3Gb);
+				}
+			}
+			else
+			{
+				enable3Gb = (GetXptSDIOutDS2InputSelect(context, channel, &xptSelect) && (xptSelect != NTV2_XptBlack)) ? true : false;
+				SetSDIOut3GEnable(context, channel, enable3Gb);
+				SetSDIOut3GbEnable(context, channel, !doRGBLevelAConversion ? enable3Gb : false);
+			}
+
+			if (isMultiLinkMode)
+			{
+				SetSDIOut12GEnable(context, channel, false);
+				SetSDIOut6GEnable(context, channel, false);
+			}
+			else if (NTV2DeviceCanDo12gRouting(deviceID))
+			{
+				if ((isQuadMode || isQuadQuadMode) && (is3GaMode || enable3Gb))
+				{
+					SetSDIOut12GEnable(context, channel, true);
+					SetSDIOut6GEnable(context, channel, false);
+				}
+				else if (isQuadMode || isQuadQuadMode)
+				{
+					SetSDIOut12GEnable(context, channel, false);
+					SetSDIOut6GEnable(context, channel, true);
+				}
+				else if (is3GaMode && enable3Gb) //HFR HD RGB 6G out
+				{
+					SetSDIOut12GEnable(context, channel, false);
+					SetSDIOut6GEnable(context, channel, true);
+				}
+				else
+				{
+					SetSDIOut12GEnable(context, channel, false);
+					SetSDIOut6GEnable(context, channel, false);
+				}
+			}
+		}
+
+		SetSDIOutStandard(context, channel, standard);
+		SetSDIOut_2Kx1080Enable(context, channel, is2Kx1080Mode);
+
+		if (ntv2ReadVirtualRegister(context, kVRegDisableAutoVPID) == 0)
+			SetVPIDOutput(context , channel);
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+bool SetSDIOutStandard(Ntv2SystemContext* context, NTV2Channel channel, NTV2Standard value)
+{
+	uint32_t regNum = gChannelToSDIOutControlRegNum[channel];
+
+	return ntv2WriteRegisterMS(context, regNum, value, kK2RegMaskSDIOutStandard, kK2RegShiftSDIOutStandard);
+}
+
+bool SetSDIOut_2Kx1080Enable(Ntv2SystemContext* context, NTV2Channel channel, bool enable)
+{
+	uint32_t regNum = gChannelToSDIOutControlRegNum[channel];
+
+	return ntv2WriteRegisterMS(context, regNum, enable ? 1 : 0, kK2RegMaskSDI1Out_2Kx1080Mode, kK2RegShiftSDI1Out_2Kx1080Mode);
+}
+
+bool GetSDIOut3GEnable(Ntv2SystemContext* context, NTV2Channel channel, bool* enable)
+{
+	uint32_t regNum = gChannelToSDIOutControlRegNum[channel];
+	uint32_t tempVal = 0;
+
+	bool retVal = ntv2ReadRegisterMS(context, regNum, &tempVal, kLHIRegMaskSDIOut3GbpsMode, kLHIRegShiftSDIOut3GbpsMode);
+	*enable = tempVal == 1 ? true : false;
+	return retVal;
+}
+
+bool SetSDIOut3GEnable(Ntv2SystemContext* context, NTV2Channel channel, bool enable)
+{
+	uint32_t regNum = gChannelToSDIOutControlRegNum[channel];
+
+	return ntv2WriteRegisterMS(context, regNum, enable ? 1 : 0, kLHIRegMaskSDIOut3GbpsMode, kLHIRegShiftSDIOut3GbpsMode);
+}
+
+bool GetSDIOut3GbEnable(Ntv2SystemContext* context, NTV2Channel channel, bool* enable)
+{
+	uint32_t regNum = gChannelToSDIOutControlRegNum[channel];
+	uint32_t tempVal = 0;
+
+	bool retVal = ntv2ReadRegisterMS(context, regNum, &tempVal, kLHIRegMaskSDIOutSMPTELevelBMode, kLHIRegShiftSDIOutSMPTELevelBMode);
+	*enable = tempVal == 1 ? true : false;
+	return retVal;
+}
+
+bool SetSDIOut3GbEnable(Ntv2SystemContext* context, NTV2Channel channel, bool enable)
+{
+	uint32_t regNum = gChannelToSDIOutControlRegNum[channel];
+
+	return ntv2WriteRegisterMS(context, regNum, enable ? 1 : 0, kLHIRegMaskSDIOutSMPTELevelBMode, kLHIRegShiftSDIOutSMPTELevelBMode);
+}
+
+bool GetSDIOut6GEnable(Ntv2SystemContext* context, NTV2Channel channel, bool* enable)
+{
+	uint32_t regNum = gChannelToSDIOutControlRegNum[channel];
+	uint32_t is6G = 0, is12G = 0;
+	bool retVal = false;
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+
+	if (!NTV2DeviceCanDo12GOut(deviceID, (UWord)channel))
+		return false;
+
+	retVal = ntv2ReadRegisterMS(context, regNum, &is6G, kRegMaskSDIOut6GbpsMode, kRegShiftSDIOut6GbpsMode);
+	retVal = ntv2ReadRegisterMS(context, regNum, &is12G, kRegMaskSDIOut12GbpsMode, kRegShiftSDIOut12GbpsMode);
+	*enable = (is6G == 1 && is12G == 0) ? true : false;
+	return retVal;
+}
+
+bool SetSDIOut6GEnable(Ntv2SystemContext* context, NTV2Channel channel, bool enable)
+{
+	uint32_t regNum = gChannelToSDIOutControlRegNum[channel];
+
+	return ntv2WriteRegisterMS(context, regNum, enable ? 1 : 0, kRegMaskSDIOut6GbpsMode, kRegShiftSDIOut6GbpsMode);
+}
+
+bool GetSDIOut12GEnable(Ntv2SystemContext* context, NTV2Channel channel, bool* enable)
+{
+	uint32_t regNum = gChannelToSDIOutControlRegNum[channel];
+	uint32_t is12G = 0;
+	bool retVal = false;
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+
+	if (!NTV2DeviceCanDo12GOut(deviceID, (UWord)channel))
+		return false;
+
+	retVal = ntv2ReadRegisterMS(context, regNum, &is12G, kRegMaskSDIOut12GbpsMode, kRegShiftSDIOut12GbpsMode);
+	*enable = (is12G == 1) ? true : false;
+	return retVal;
+}
+
+bool SetSDIOut12GEnable(Ntv2SystemContext* context, NTV2Channel channel, bool enable)
+{
+	uint32_t regNum = gChannelToSDIOutControlRegNum[channel];
+
+	return ntv2WriteRegisterMS(context, regNum, enable ? 1 : 0, kRegMaskSDIOut12GbpsMode, kRegShiftSDIOut12GbpsMode);
+}
+
+bool GetSDIOutRGBLevelAConversion(Ntv2SystemContext* context, NTV2Channel channel, bool* enable)
+{
+	ULWord	regNum = gChannelToSDIOutControlRegNum[channel];
+	ULWord tempVal = 0;
+	bool retVal = false;
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+
+	if (!NTV2DeviceCanDoRGBLevelAConversion(deviceID))
+	{
+		return false;
+	}
+
+	retVal = ntv2ReadRegisterMS(context, regNum, &tempVal, kRegMaskRGBLevelA, kRegShiftRGBLevelA);
+	*enable = (tempVal == 1) ? true : false;
+	return retVal;
+}
+
+bool GetSDIOutLevelAtoLevelBConversion(Ntv2SystemContext* context, NTV2Channel channel, bool* enable)
+{
+	ULWord	regNum = gChannelToSDIOutControlRegNum[channel];
+	ULWord tempVal = 0;
+	bool retVal = false;
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+
+	if(!NTV2DeviceCanDo3GLevelConversion(deviceID))
+	{
+		return false;
+	}
+
+	retVal = ntv2ReadRegisterMS(context, regNum, &tempVal, kRegMaskSDIOutLevelAtoLevelB, kRegShiftSDIOutLevelAtoLevelB);
+	*enable = (tempVal == 1) ? true : false;
+	return retVal;
+}
+
+bool GetSDIInLevelBtoLevelAConversion(Ntv2SystemContext* context, NTV2Channel channel, bool* enable)
+{
+	ULWord tempVal = 0;
+	bool retVal = false;
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+
+	if (!NTV2DeviceCanDo3GLevelConversion(deviceID))
+	{
+		return false;
+	}
+
+	retVal = ntv2ReadRegisterMS(context, gChannelToSDIInput3GStatusRegNum[channel], &tempVal, gChannelToInputLevelConversionMasks[channel], gChannelToInputLevelConversionShifts[channel]);
+	*enable = (tempVal == 1) ? true : false;
+	return retVal;
+}
+
+bool GetSDIIn6GEnable(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	ULWord is6G = 0;
+	ULWord    regNum = gChannelToSDIInput3GStatusRegNum[channel];
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+	if (!NTV2DeviceCanDo12GIn(deviceID, (UWord)channel))
+		return false;
+	
+	ntv2ReadRegisterMS(context, regNum, &is6G, gChannelToSDIIn6GModeMask[channel], gChannelToSDIIn6GModeShift[channel]);
+	return (is6G == 1) ? true : false;
+}
+
+bool GetSDIIn12GEnable(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	ULWord is12G = 0;
+	ULWord    regNum = gChannelToSDIInput3GStatusRegNum[channel];
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+	if (!NTV2DeviceCanDo12GIn(deviceID, (UWord)channel))
+		return false;
+	
+	ntv2ReadRegisterMS(context, regNum, &is12G, gChannelToSDIIn12GModeMask[channel], gChannelToSDIIn12GModeShift[channel]);
+	return (is12G == 1) ? true : false;
+}
+
+///////////////////////
+//hdmi routines
+bool SetLHiHDMIOutputStandard(Ntv2SystemContext* context)
+{
+	NTV2Standard standard = NTV2_NUM_STANDARDS;
+	NTV2VideoFormat videoFormat = NTV2_FORMAT_UNKNOWN;
+	NTV2FrameRate videoRate = NTV2_FRAMERATE_UNKNOWN;
+	NTV2OutputXptID xptSelect;
+	ULWord hdmiOutput = 0;
+	ULWord hdmiStatus = 0;
+	bool isQuadMode = false;
+	bool isQuadQuadMode = false;
+	HDRDriverValues hdrRegValues;
+	NTV2Standard contStandard;
+	NTV2FrameRate contFrameRate;
+
+	if(!FindHDMIOutputSource(context, &xptSelect, NTV2_CHANNEL1))
+	{
+		return false;
+	}
+	if(xptSelect == NTV2_XptConversionModule)
+	{
+		if(!GetConverterOutStandard(context, &standard))
+		{
+			return false;
+		}
+		if(!GetK2ConverterOutFormat(context, &videoFormat))
+		{
+			return false;
+		}
+	}
+	else
+	{
+		if (GetSourceVideoFormat(context, &videoFormat, xptSelect, &isQuadMode, &isQuadQuadMode, &hdrRegValues))
+		{
+			standard = GetNTV2StandardFromVideoFormat(videoFormat);
+		}
+		else
+		{
+			return false;
+		}
+	}
+
+	videoRate = GetNTV2FrameRateFromVideoFormat(videoFormat);
+	if(videoRate == NTV2_FRAMERATE_UNKNOWN)
+	{
+		return false;
+	}
+
+	hdmiStatus = ntv2ReadRegister(context, kRegHDMIInputStatus);
+	hdmiOutput = ntv2ReadRegister(context, kRegHDMIOutControl);
+	contStandard = (NTV2Standard)((hdmiOutput & kRegMaskHDMIOutVideoStd) >> kRegShiftHDMIOutVideoStd);
+	contFrameRate = (NTV2FrameRate)((hdmiOutput & kLHIRegMaskHDMIOutFPS) >> kLHIRegShiftHDMIOutFPS);
+
+	if((contStandard != standard) ||
+		(contFrameRate != videoRate))
+	{
+		hdmiOutput = (hdmiOutput & ~kRegMaskHDMIOutVideoStd) | (standard << kRegShiftHDMIOutVideoStd);
+		hdmiOutput = (hdmiOutput & ~kLHIRegMaskHDMIOutFPS) | (videoRate << kLHIRegShiftHDMIOutFPS);
+		ntv2WriteRegister(context, kRegHDMIOutControl, hdmiOutput);
+	}
+
+	return true;
+}
+
+bool SetHDMIOutputStandard(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	NTV2OutputXptID xptSelect;
+	NTV2OutputXptID tempXptSelect;
+	HDRDriverValues hdrRegValues;
+	NTV2DeviceID deviceID;
+	ULWord hdmiVersion = 0;
+	NTV2Standard currentStandard = NTV2_STANDARD_1080;
+	NTV2FrameRate currentFrameRate = NTV2_FRAMERATE_UNKNOWN;
+	ULWord currentSampling = 0;
+	ULWord currentLevelBMode = 0;
+	ULWord currentDecimateMode = 0;
+	ULWord currentSourceRGB = 0;
+	ULWord levelBMode = 0;
+	NTV2Standard standard = NTV2_NUM_STANDARDS;
+	NTV2VideoFormat videoFormat = NTV2_FORMAT_UNKNOWN;
+	NTV2FrameRate videoRate = NTV2_FRAMERATE_UNKNOWN;
+	NTV2FrameGeometry hdmiv2fg = NTV2_FG_NUMFRAMEGEOMETRIES;
+	bool bFormatIsTSI = false;
+	bool isQuadMode = false;
+	bool isQuadQuadMode = false;
+	bool is4k = false;
+	bool isLevelB = false;
+	bool isSourceRGB = false;
+	bool useHDMI420Mode = false;
+	NTV2Standard hdmiv2std = NTV2_STANDARD_INVALID;
+	ULWord sampling = NTV2_HDMI_422;
+	deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+	hdmiVersion = NTV2DeviceGetHDMIVersion(deviceID);
+	
+    if (hdmiVersion == 0)
+		return false;
+	if (hdmiVersion == 1)
+		return SetLHiHDMIOutputStandard(context);
+    if (hdmiVersion < 6)
+        channel = NTV2_CHANNEL1;
+
+    if (channel >= NTV2DeviceGetNumHDMIVideoOutputs(deviceID)) {
+        return false; }
+
+	memset(&hdrRegValues, 0, sizeof(HDRDriverValues));
+
+	if (!FindHDMIOutputSource(context, &xptSelect, channel))
+	{
+		return false;
+	}
+	if (xptSelect == NTV2_XptConversionModule)
+	{
+		if (!GetConverterOutStandard(context, &standard))
+		{
+			return false;
+		}
+		if (!GetK2ConverterOutFormat(context, &videoFormat))
+		{
+			return false;
+		}
+	}
+	else
+	{
+		if (GetSourceVideoFormat(context, &videoFormat, xptSelect, &isQuadMode, &isQuadQuadMode, &hdrRegValues))
+		{
+			if (NTV2DeviceCanDo12gRouting(deviceID) && IsXptFrameStore(xptSelect))
+			{
+				bFormatIsTSI = Get425FrameEnable(context, channel);
+			}
+		}
+		else
+		{
+			return false;
+		}
+	}
+
+	videoRate = GetNTV2FrameRateFromVideoFormat(videoFormat);
+	if (videoRate == NTV2_FRAMERATE_UNKNOWN)
+	{
+		return false;
+	}
+
+	is4k = false;
+	isLevelB = false;
+	GetXptHDMIOutInputSelect(context, channel, &tempXptSelect);
+	isSourceRGB = (tempXptSelect & 0x80) != 0 ? true : false;
+	useHDMI420Mode = false;
+	if (hdmiVersion == 2 || hdmiVersion == 4 || hdmiVersion == 5)
+	{
+		bool isQuadLink = false;
+		NTV2OutputXptID q2connection = NTV2_XptBlack;
+		NTV2OutputXptID q3connection = NTV2_XptBlack;
+		NTV2OutputXptID q4connection = NTV2_XptBlack;
+		GetXptHDMIOutQ2InputSelect(context, &q2connection);
+		GetXptHDMIOutQ3InputSelect(context, &q3connection);
+		GetXptHDMIOutQ4InputSelect(context, &q4connection);
+		if (q2connection != NTV2_XptBlack && q3connection != NTV2_XptBlack && q4connection != NTV2_XptBlack)
+		{
+			is4k = true;
+			isQuadLink = true;
+		}
+		if (NTV2DeviceCanDo12gRouting(deviceID) && bFormatIsTSI)
+			is4k = true;
+		if (q2connection != NTV2_XptBlack && q3connection == NTV2_XptBlack && q4connection == NTV2_XptBlack)
+			isLevelB = true;
+		if (hdmiVersion >= 4)
+			useHDMI420Mode = ntv2ReadVirtualRegister(context, kVRegHDMIOutColorSpaceModeCtrl) == kHDMIOutCSCYCbCr8bit ? true : false;
+		if (HasMultiRasterWidget(context))
+		{
+			if (isQuadLink)
+			{
+				NTV2OutputXptID mrXptSelect;
+				NTV2VideoFormat mrVideoFormat;
+				NTV2Standard mrStandard;
+				bool mrQMode = false, mrQQMode = false;
+				HDRDriverValues mrRegValues;
+				FindHDMIOutputSource(context, &mrXptSelect, NTV2_CHANNEL1);
+				GetSourceVideoFormat(context, &mrVideoFormat, mrXptSelect, &mrQMode, &mrQQMode, &mrRegValues);
+				mrStandard = (NTV2_IS_PSF_VIDEO_FORMAT(mrVideoFormat) || mrVideoFormat == NTV2_FORMAT_UNKNOWN) ? NTV2_STANDARD_1080p : GetNTV2StandardFromVideoFormat(mrVideoFormat);
+				if (NTV2_IS_2K_1080_VIDEO_FORMAT(mrVideoFormat))
+					mrStandard = NTV2_STANDARD_2Kx1080p;
+				SetMultiRasterInputStandard(context, mrStandard, NTV2_CHANNEL1);
+				SetMultiRasterOutputStandard(context, mrStandard == NTV2_STANDARD_2Kx1080p ? NTV2_STANDARD_4096x2160p : NTV2_STANDARD_3840x2160p);
+
+				FindHDMIOutputSource(context, &mrXptSelect, NTV2_CHANNEL2);
+				GetSourceVideoFormat(context, &mrVideoFormat, mrXptSelect, &mrQMode, &mrQQMode, &mrRegValues);
+				mrStandard = (NTV2_IS_PSF_VIDEO_FORMAT(mrVideoFormat) || mrVideoFormat == NTV2_FORMAT_UNKNOWN) ? NTV2_STANDARD_1080p : GetNTV2StandardFromVideoFormat(mrVideoFormat);
+				if (NTV2_IS_2K_1080_VIDEO_FORMAT(mrVideoFormat))
+					mrStandard = NTV2_STANDARD_2Kx1080p;
+				SetMultiRasterInputStandard(context, mrStandard, NTV2_CHANNEL2);
+
+				FindHDMIOutputSource(context, &mrXptSelect, NTV2_CHANNEL3);
+				GetSourceVideoFormat(context, &mrVideoFormat, mrXptSelect, &mrQMode, &mrQQMode, &mrRegValues);
+				mrStandard = (NTV2_IS_PSF_VIDEO_FORMAT(mrVideoFormat) || mrVideoFormat == NTV2_FORMAT_UNKNOWN) ? NTV2_STANDARD_1080p : GetNTV2StandardFromVideoFormat(mrVideoFormat);
+				if (NTV2_IS_2K_1080_VIDEO_FORMAT(mrVideoFormat))
+					mrStandard = NTV2_STANDARD_2Kx1080p;
+				SetMultiRasterInputStandard(context, mrStandard, NTV2_CHANNEL3);
+
+				FindHDMIOutputSource(context, &mrXptSelect, NTV2_CHANNEL4);
+				GetSourceVideoFormat(context, &mrVideoFormat, mrXptSelect, &mrQMode, &mrQQMode, &mrRegValues);
+				mrStandard = (NTV2_IS_PSF_VIDEO_FORMAT(mrVideoFormat) || mrVideoFormat == NTV2_FORMAT_UNKNOWN) ? NTV2_STANDARD_1080p : GetNTV2StandardFromVideoFormat(mrVideoFormat);
+				if (NTV2_IS_2K_1080_VIDEO_FORMAT(mrVideoFormat))
+					mrStandard = NTV2_STANDARD_2Kx1080p;
+				SetMultiRasterInputStandard(context, mrStandard, NTV2_CHANNEL4);
+
+				SetEnableMultiRasterCapture(context, true);
+
+				videoFormat = NTV2_IS_FRACTIONAL_NTV2FrameRate(videoRate) ? NTV2_FORMAT_1080p_5994_A : NTV2_FORMAT_1080p_6000_A;
+			}
+			else
+			{
+				SetEnableMultiRasterCapture(context, false);
+			}
+		}
+	}
+    else if (hdmiVersion == 6)
+    {
+		if (bFormatIsTSI || isQuadMode)
+			is4k = true;
+    }
+
+	standard = NTV2_IS_PSF_VIDEO_FORMAT(videoFormat) ? NTV2_STANDARD_1080p : GetNTV2StandardFromVideoFormat(videoFormat);
+	hdmiv2std = NTV2_STANDARD_INVALID;
+	sampling = NTV2_HDMI_422;
+
+	switch(standard)
+	{
+	case NTV2_STANDARD_1080:
+		switch(videoRate)
+		{
+		case NTV2_FRAMERATE_2398:
+		case NTV2_FRAMERATE_2400:
+			hdmiv2std = NTV2_STANDARD_1080p;
+			break;
+		default:
+			hdmiv2std = NTV2_STANDARD_1080;
+			break;
+		}
+		if(isLevelB)
+			hdmiv2std = NTV2_STANDARD_1080p;
+		break;
+	case NTV2_STANDARD_720: 
+		hdmiv2std = NTV2_STANDARD_720;
+		break;
+	case NTV2_STANDARD_525: 
+		hdmiv2std = NTV2_STANDARD_525;
+		break;
+	case NTV2_STANDARD_625:
+		hdmiv2std = NTV2_STANDARD_625;
+		break;
+	case NTV2_STANDARD_1080p:
+		hdmiv2fg = GetNTV2FrameGeometryFromVideoFormat(videoFormat);
+		if (is4k)
+		{
+			if (hdmiVersion >= 4)
+			{
+				if (NTV2_IS_2K_1080_FRAME_GEOMETRY(hdmiv2fg) || hdmiv2fg == NTV2_FG_4x2048x1080)
+				{
+					switch (videoRate)
+					{
+					case NTV2_FRAMERATE_5000:
+					case NTV2_FRAMERATE_5994:
+					case NTV2_FRAMERATE_6000:
+						if (isSourceRGB)
+						{
+							hdmiv2std = NTV2_STANDARD_4096x2160p;
+							sampling = NTV2_HDMI_422;
+						}
+						else
+						{
+							hdmiv2std = useHDMI420Mode ? NTV2_STANDARD_4096HFR : NTV2_STANDARD_4096x2160p;
+							sampling = useHDMI420Mode ? NTV2_HDMI_420 : NTV2_HDMI_422;
+						}
+						break;
+					default:
+						hdmiv2std = NTV2_STANDARD_4096x2160p;
+						sampling = NTV2_HDMI_422;
+						break;
+					}
+				}
+				else
+				{
+					switch (videoRate)
+					{
+					case NTV2_FRAMERATE_5000:
+					case NTV2_FRAMERATE_5994:
+					case NTV2_FRAMERATE_6000:
+						if (isSourceRGB)
+						{
+							hdmiv2std = NTV2_STANDARD_3840x2160p;
+							sampling = NTV2_HDMI_422;
+						}
+						else
+						{
+							hdmiv2std = useHDMI420Mode ? NTV2_STANDARD_3840HFR : NTV2_STANDARD_3840x2160p;
+							sampling = useHDMI420Mode ? NTV2_HDMI_420 : NTV2_HDMI_422;
+						}
+						break;
+					default:
+						hdmiv2std = NTV2_STANDARD_3840x2160p;
+						sampling = NTV2_HDMI_422;
+						break;
+					}
+				}
+			}
+			else
+			{
+				if (NTV2_IS_2K_1080_FRAME_GEOMETRY(hdmiv2fg))
+				{
+					switch (videoRate)
+					{
+					case NTV2_FRAMERATE_5000:
+					case NTV2_FRAMERATE_5994:
+					case NTV2_FRAMERATE_6000:
+						hdmiv2std = NTV2_STANDARD_4096HFR;
+						sampling = NTV2_HDMI_420;
+						break;
+					default:
+						hdmiv2std = NTV2_STANDARD_4096x2160p;
+						sampling = NTV2_HDMI_422;
+						break;
+					}
+				}
+				else
+				{
+					switch (videoRate)
+					{
+					case NTV2_FRAMERATE_5000:
+					case NTV2_FRAMERATE_5994:
+					case NTV2_FRAMERATE_6000:
+						hdmiv2std = NTV2_STANDARD_3840HFR;
+						sampling = NTV2_HDMI_420;
+						break;
+					default:
+						hdmiv2std = NTV2_STANDARD_3840x2160p;
+						sampling = NTV2_HDMI_422;
+						break;
+					}
+				}
+			}
+		}
+		else
+		{
+			if (NTV2_IS_2K_1080_FRAME_GEOMETRY(hdmiv2fg))
+				hdmiv2std = NTV2_STANDARD_2Kx1080p;
+			else
+				hdmiv2std = NTV2_STANDARD_1080p;
+		}
+		break;
+	case NTV2_STANDARD_2K:		// 2048x1556psf
+	default:
+		hdmiv2std = NTV2_STANDARD_INVALID;
+		break;
+	}
+
+	levelBMode = isLevelB ? 1 : 0;
+
+	if (hdmiVersion < 6)
+    {    
+        ntv2ReadRegisterMS(context, kRegHDMIOutControl, (ULWord*)&currentStandard, kRegMaskHDMIOutV2VideoStd, kRegShiftHDMIOutVideoStd);
+        ntv2ReadRegisterMS(context, kRegHDMIOutControl, (ULWord*)&currentFrameRate, kLHIRegMaskHDMIOutFPS, kLHIRegShiftHDMIOutFPS);
+        ntv2ReadRegisterMS(context, kRegHDMIOutControl, (ULWord*)&currentSampling, kRegMaskHDMISampling, kRegShiftHDMISampling);
+        ntv2ReadRegisterMS(context, kRegHDMIOutControl, (ULWord*)&currentSourceRGB, kRegMaskSourceIsRGB, kRegShiftSourceIsRGB);
+        ntv2ReadRegisterMS(context, kRegRasterizerControl, (ULWord*)&currentLevelBMode, kRegMaskRasterLevelB, kRegShiftRasterLevelB);
+        ntv2ReadRegisterMS(context, kRegRasterizerControl, (ULWord*)&currentDecimateMode, kRegMaskRasterDecimate, kRegShiftRasterDecimate);
+    }
+    else
+    {
+        ntv2ReadRegisterMS(context, gHDMIChannelToOutControlVRegNum[channel], (ULWord*)&currentStandard,
+                           kRegMaskHDMIOutV2VideoStd, kRegShiftHDMIOutVideoStd);
+        ntv2ReadRegisterMS(context, gHDMIChannelToOutControlVRegNum[channel], (ULWord*)&currentFrameRate,
+                           kLHIRegMaskHDMIOutFPS, kLHIRegShiftHDMIOutFPS);
+        ntv2ReadRegisterMS(context, gHDMIChannelToOutControlVRegNum[channel], (ULWord*)&currentSampling,
+                           kRegMaskHDMISampling, kRegShiftHDMISampling);
+        ntv2ReadRegisterMS(context, gHDMIChannelToOutControlVRegNum[channel], (ULWord*)&currentSourceRGB,
+                           kRegMaskSourceIsRGB, kRegShiftSourceIsRGB);
+    }
+
+	if(currentDecimateMode != 0)
+	{
+		switch(videoRate)
+		{
+		case NTV2_FRAMERATE_5000:
+			videoRate = NTV2_FRAMERATE_2500;
+			break;
+		case NTV2_FRAMERATE_5994:
+			videoRate = NTV2_FRAMERATE_2997;
+			break;
+		case NTV2_FRAMERATE_6000:
+			videoRate = NTV2_FRAMERATE_3000;
+			break;
+		default:
+			break;
+		}
+
+		// Redo the HDMI standard in case HFR was selected above
+		hdmiv2std = NTV2_IS_2K_1080_FRAME_GEOMETRY(hdmiv2fg) ? NTV2_STANDARD_4096x2160p : NTV2_STANDARD_3840x2160p;
+		sampling = NTV2_HDMI_422;		// Turn off 4:2:0
+	}
+
+	if (levelBMode)
+	{
+		switch (videoRate)
+		{
+		case NTV2_FRAMERATE_2500:
+			videoRate = NTV2_FRAMERATE_5000;
+			break;
+		case NTV2_FRAMERATE_2997:
+			videoRate = NTV2_FRAMERATE_5994;
+			break;
+		case NTV2_FRAMERATE_3000:
+			videoRate = NTV2_FRAMERATE_6000;
+			break;
+		default:
+			break;
+		}
+	}
+
+	sampling = isSourceRGB ? NTV2_HDMI_RGB : sampling;
+
+	if((currentStandard != hdmiv2std) ||
+		(currentFrameRate != videoRate) ||
+		(currentLevelBMode != levelBMode) ||
+		(currentSampling != sampling))
+	{
+        if (hdmiVersion < 6)
+        {
+            ntv2WriteRegisterMS(context, kRegHDMIOutControl, (ULWord)hdmiv2std, kRegMaskHDMIOutV2VideoStd, kRegShiftHDMIOutVideoStd);
+            ntv2WriteRegisterMS(context, kRegHDMIOutControl, videoRate, kLHIRegMaskHDMIOutFPS, kLHIRegShiftHDMIOutFPS);
+            ntv2WriteRegisterMS(context, kRegHDMIOutControl, sampling, kRegMaskHDMISampling, kRegShiftHDMISampling);
+            SetHDMIV2LevelBEnable(context, levelBMode ? true : false);
+        }
+        else
+        {
+            ntv2WriteRegisterMS(context, gHDMIChannelToOutControlVRegNum[channel], (ULWord)hdmiv2std,
+                                kRegMaskHDMIOutV2VideoStd, kRegShiftHDMIOutVideoStd);
+            ntv2WriteRegisterMS(context, gHDMIChannelToOutControlVRegNum[channel], videoRate,
+                                kLHIRegMaskHDMIOutFPS, kLHIRegShiftHDMIOutFPS);
+            ntv2WriteRegisterMS(context, gHDMIChannelToOutControlVRegNum[channel], sampling,
+                                kRegMaskHDMISampling, kRegShiftHDMISampling);
+        }
+	}
+
+    if (hdmiVersion < 6)
+    {
+        if (sampling == NTV2_HDMI_420)
+        {
+            ntv2WriteRegisterMS(context, kRegHDMIOutControl, 0, kLHIRegMaskHDMIOutColorSpace, kLHIRegShiftHDMIOutColorSpace);
+        }
+        else
+        {
+            if (hdmiVersion >= 4)
+                ntv2WriteRegisterMS(context, kRegHDMIOutControl, (isSourceRGB? 1 : 0),
+                                    kLHIRegMaskHDMIOutColorSpace, kLHIRegShiftHDMIOutColorSpace);
+        }
+    }
+    else
+    {
+        if (sampling == NTV2_HDMI_420)
+        {
+            ntv2WriteRegisterMS(context, gHDMIChannelToOutControlVRegNum[channel], 0,
+                                kLHIRegMaskHDMIOutColorSpace, kLHIRegShiftHDMIOutColorSpace);
+        }
+        else
+        {
+			ntv2WriteRegisterMS(context, gHDMIChannelToOutControlVRegNum[channel], (isSourceRGB? 1 : 0),
+                                kLHIRegMaskHDMIOutColorSpace, kLHIRegShiftHDMIOutColorSpace);
+        }
+	}
+
+	if(NTV2DeviceCanDoHDMIHDROut(deviceID) && (hdmiVersion < 6))
+	{
+		if(	(hdrRegValues.electroOpticalTransferFunction > 0 && hdrRegValues.electroOpticalTransferFunction <= 3) ||
+			(hdrRegValues.staticMetadataDescriptorID > 0 && hdrRegValues.staticMetadataDescriptorID <= 3) ||
+			(hdrRegValues.luminance == 1) )
+		{
+			if (hdrRegValues.electroOpticalTransferFunction > 3 ||
+				hdrRegValues.staticMetadataDescriptorID > 3 ||
+				hdrRegValues.luminance > 1)
+			{
+				memset(&hdrRegValues, 0, sizeof(HDRDriverValues));
+				SetHDRData(context, hdrRegValues, channel);
+				EnableHDMIHDR(context, false, channel);
+				return true;
+			}
+			switch(hdrRegValues.electroOpticalTransferFunction)
+			{
+			case 1:
+				hdrRegValues.electroOpticalTransferFunction = 3;
+				break;
+			default:
+				break;
+			}
+			if(hdmiVersion == 2 || hdmiVersion == 3)
+			{
+				HDRDriverValues currentValues;
+				GetHDRData(context, &currentValues, channel);
+				if(HDRIsChanging(currentValues, hdrRegValues))
+				{
+					if(GetEnableHDMIHDR(context, channel))
+					{
+						EnableHDMIHDR(context, false, channel);
+						return true;
+					}
+				}
+			}
+			SetHDRData(context, hdrRegValues, channel);
+			EnableHDMIHDR(context, true, channel);
+		}
+		else
+		{
+			memset(&hdrRegValues, 0, sizeof(HDRDriverValues));
+			SetHDRData(context, hdrRegValues, channel);
+			EnableHDMIHDR(context, false, channel);
+		}
+	}
+
+	return true;
+}
+
+bool SetHDMIV2LevelBEnable (Ntv2SystemContext* context, bool enable)
+{
+	return ntv2WriteRegisterMS(context, kRegRasterizerControl, enable ? 1 : 0, kRegMaskRasterLevelB, kRegShiftRasterLevelB);
+}
+
+bool SetMultiRasterInputStandard(Ntv2SystemContext* context, NTV2Standard mrStandard, NTV2Channel mrChannel)
+{
+	return ntv2WriteRegisterMS(	context, gChannelToMRRegNum[mrChannel], (ULWord)mrStandard, kRegMaskMRStandard, kRegShiftMRStandard);
+}
+
+bool SetMultiRasterOutputStandard(Ntv2SystemContext* context, NTV2Standard mrStandard)
+{
+	return ntv2WriteRegisterMS(	context, kRegMROutControl, (ULWord)mrStandard, kRegMaskMRStandard, kRegShiftMRStandard);
+}
+
+bool SetEnableMultiRasterCapture(Ntv2SystemContext* context, bool bEnable)
+{
+	ULWord ulEnabled = bEnable ? 1 : 0;
+	ntv2WriteRegisterMS( context, gChannelToMRRegNum[NTV2_CHANNEL1], ulEnabled, kRegMaskMREnable, kRegShiftMREnable);
+	ntv2WriteRegisterMS( context, gChannelToMRRegNum[NTV2_CHANNEL2], ulEnabled, kRegMaskMREnable, kRegShiftMREnable);
+	ntv2WriteRegisterMS( context, gChannelToMRRegNum[NTV2_CHANNEL3], ulEnabled, kRegMaskMREnable, kRegShiftMREnable);
+	ntv2WriteRegisterMS( context, gChannelToMRRegNum[NTV2_CHANNEL4], ulEnabled, kRegMaskMREnable, kRegShiftMREnable);
+	 return ntv2WriteRegisterMS( context, kRegMROutControl, ulEnabled, kRegMaskMREnable, kRegShiftMREnable);
+}
+
+bool HasMultiRasterWidget(Ntv2SystemContext* context)
+{
+	ULWord hasMultiRasterWidget = 0;
+	ntv2ReadRegisterMS(context, kRegMRSupport, &hasMultiRasterWidget, kRegMaskMRSupport, kRegShiftMRSupport);
+	return hasMultiRasterWidget > 0 ? true : false;
+}
+
+bool IsMultiRasterEnabled(Ntv2SystemContext* context)
+{
+	ULWord ulEnabled = 0;
+	ntv2ReadRegisterMS(context, kRegMROutControl, &ulEnabled, kRegMaskMRBypass, kRegShiftMRBypass);
+	return ulEnabled == 0 ? true : false;
+}
+
+///////////////////////
+//hdr routines
+bool EnableHDMIHDR(Ntv2SystemContext* context, bool inEnableHDMIHDR, NTV2Channel channel)
+{
+	bool status = true;
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+	ULWord hdmiVersion = NTV2DeviceGetHDMIVersion(deviceID);
+
+	if (!NTV2DeviceCanDoHDMIHDROut(deviceID))
+		return false;
+
+	if (hdmiVersion < 6)
+    {    
+        status = ntv2WriteRegisterMS(context, kRegHDMIHDRControl, (inEnableHDMIHDR ? 1 : 0), kRegMaskHDMIHDREnable, kRegShiftHDMIHDREnable);
+    }
+    else
+    {
+        status = ntv2WriteRegisterMS(context, gHDMIChannelToOutHDRControlVRegNum[channel], (inEnableHDMIHDR ? 1 : 0),
+                                     kRegMaskHDMIHDREnable, kRegShiftHDMIHDREnable);
+    }
+	return status;
+}
+
+bool GetEnableHDMIHDR(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	ULWord HDREnabled = 0;
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+	ULWord hdmiVersion = NTV2DeviceGetHDMIVersion(deviceID);
+
+	if (!NTV2DeviceCanDoHDMIHDROut(deviceID))
+		return false;
+
+	if (hdmiVersion < 6)
+    {    
+        ntv2ReadRegisterMS(context, kRegHDMIHDRControl, &HDREnabled, kRegMaskHDMIHDREnable, kRegShiftHDMIHDREnable);
+    }
+    else
+    {
+        ntv2ReadRegisterMS(context, gHDMIChannelToOutHDRControlVRegNum[channel], &HDREnabled,
+                           kRegMaskHDMIHDREnable, kRegShiftHDMIHDREnable);
+    }
+	return HDREnabled == 1 ? true : false;
+}
+
+bool SetHDRData(Ntv2SystemContext* context, HDRDriverValues inRegisterValues, NTV2Channel channel)
+{
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+	ULWord hdmiVersion = NTV2DeviceGetHDMIVersion(deviceID);
+
+	if (hdmiVersion < 6)
+    {    
+        ntv2WriteRegisterMS(context, kRegHDMIHDRGreenPrimary, (ULWord)inRegisterValues.greenPrimaryX,
+                            kRegMaskHDMIHDRGreenPrimaryX, kRegShiftHDMIHDRGreenPrimaryX);
+        ntv2WriteRegisterMS(context, kRegHDMIHDRGreenPrimary, (ULWord)inRegisterValues.greenPrimaryY,
+                            (ULWord)kRegMaskHDMIHDRGreenPrimaryY, kRegShiftHDMIHDRGreenPrimaryY);
+        ntv2WriteRegisterMS(context, kRegHDMIHDRBluePrimary, (ULWord)inRegisterValues.bluePrimaryX,
+                            kRegMaskHDMIHDRBluePrimaryX, kRegShiftHDMIHDRBluePrimaryX);
+        ntv2WriteRegisterMS(context, kRegHDMIHDRBluePrimary, (ULWord)inRegisterValues.bluePrimaryY,
+                            (ULWord)kRegMaskHDMIHDRBluePrimaryY, kRegShiftHDMIHDRBluePrimaryY);
+        ntv2WriteRegisterMS(context, kRegHDMIHDRRedPrimary, (ULWord)inRegisterValues.redPrimaryX,
+                            kRegMaskHDMIHDRRedPrimaryX, kRegShiftHDMIHDRRedPrimaryX);
+        ntv2WriteRegisterMS(context, kRegHDMIHDRRedPrimary, (ULWord)inRegisterValues.redPrimaryY,
+                            (ULWord)kRegMaskHDMIHDRRedPrimaryY, kRegShiftHDMIHDRRedPrimaryY);
+        ntv2WriteRegisterMS(context, kRegHDMIHDRWhitePoint, (ULWord)inRegisterValues.whitePointX,
+                            kRegMaskHDMIHDRWhitePointX, kRegShiftHDMIHDRWhitePointX);
+        ntv2WriteRegisterMS(context, kRegHDMIHDRWhitePoint, (ULWord)inRegisterValues.whitePointY,
+                            (ULWord)kRegMaskHDMIHDRWhitePointY, kRegShiftHDMIHDRWhitePointY);
+        ntv2WriteRegisterMS(context, kRegHDMIHDRMasteringLuminence, (ULWord)inRegisterValues.maxMasteringLuminance,
+                            kRegMaskHDMIHDRMaxMasteringLuminance, kRegShiftHDMIHDRMaxMasteringLuminance);
+        ntv2WriteRegisterMS(context, kRegHDMIHDRMasteringLuminence, (ULWord)inRegisterValues.minMasteringLuminance,
+                            (ULWord)kRegMaskHDMIHDRMinMasteringLuminance, kRegShiftHDMIHDRMinMasteringLuminance);
+        ntv2WriteRegisterMS(context, kRegHDMIHDRLightLevel, (ULWord)inRegisterValues.maxContentLightLevel,
+                            kRegMaskHDMIHDRMaxContentLightLevel, kRegShiftHDMIHDRMaxContentLightLevel);
+        ntv2WriteRegisterMS(context, kRegHDMIHDRLightLevel, (ULWord)inRegisterValues.maxFrameAverageLightLevel,
+                            (ULWord)kRegMaskHDMIHDRMaxFrameAverageLightLevel, kRegShiftHDMIHDRMaxFrameAverageLightLevel);
+        ntv2WriteRegisterMS(context, kRegHDMIHDRControl, (ULWord)inRegisterValues.electroOpticalTransferFunction,
+                            kRegMaskElectroOpticalTransferFunction, kRegShiftElectroOpticalTransferFunction);
+        ntv2WriteRegisterMS(context, kRegHDMIHDRControl, (ULWord)inRegisterValues.staticMetadataDescriptorID,
+                            (ULWord)kRegMaskHDRStaticMetadataDescriptorID, kRegShiftHDRStaticMetadataDescriptorID);
+        ntv2WriteRegisterMS(context, kRegHDMIHDRControl, (ULWord)inRegisterValues.luminance,
+                            kRegMaskHDMIHDRNonContantLuminance, kRegShiftHDMIHDRNonContantLuminance);
+    }
+    else
+    {
+        ntv2WriteRegisterMS(context, gHDMIChannelToOutHDRGreenPrimaryVRegNum[channel], (ULWord)inRegisterValues.greenPrimaryX,
+                            kRegMaskHDMIHDRGreenPrimaryX, kRegShiftHDMIHDRGreenPrimaryX);
+        ntv2WriteRegisterMS(context, gHDMIChannelToOutHDRGreenPrimaryVRegNum[channel], (ULWord)inRegisterValues.greenPrimaryY,
+                            (ULWord)kRegMaskHDMIHDRGreenPrimaryY, kRegShiftHDMIHDRGreenPrimaryY);
+        ntv2WriteRegisterMS(context, gHDMIChannelToOutHDRBluePrimaryVRegNum[channel], (ULWord)inRegisterValues.bluePrimaryX,
+                            kRegMaskHDMIHDRBluePrimaryX, kRegShiftHDMIHDRBluePrimaryX);
+        ntv2WriteRegisterMS(context, gHDMIChannelToOutHDRBluePrimaryVRegNum[channel], (ULWord)inRegisterValues.bluePrimaryY,
+                            (ULWord)kRegMaskHDMIHDRBluePrimaryY, kRegShiftHDMIHDRBluePrimaryY);
+        ntv2WriteRegisterMS(context, gHDMIChannelToOutHDRRedPrimaryVRegNum[channel], (ULWord)inRegisterValues.redPrimaryX,
+                            kRegMaskHDMIHDRRedPrimaryX, kRegShiftHDMIHDRRedPrimaryX);
+        ntv2WriteRegisterMS(context, gHDMIChannelToOutHDRRedPrimaryVRegNum[channel], (ULWord)inRegisterValues.redPrimaryY,
+                            (ULWord)kRegMaskHDMIHDRRedPrimaryY, kRegShiftHDMIHDRRedPrimaryY);
+        ntv2WriteRegisterMS(context, gHDMIChannelToOutHDRWhitePointVRegNum[channel], (ULWord)inRegisterValues.whitePointX,
+                            kRegMaskHDMIHDRWhitePointX, kRegShiftHDMIHDRWhitePointX);
+        ntv2WriteRegisterMS(context, gHDMIChannelToOutHDRWhitePointVRegNum[channel], (ULWord)inRegisterValues.whitePointY,
+                            (ULWord)kRegMaskHDMIHDRWhitePointY, kRegShiftHDMIHDRWhitePointY);
+        ntv2WriteRegisterMS(context, gHDMIChannelToOutHDRMasterLuminanceVRegNum[channel], (ULWord)inRegisterValues.maxMasteringLuminance,
+                            kRegMaskHDMIHDRMaxMasteringLuminance, kRegShiftHDMIHDRMaxMasteringLuminance);
+        ntv2WriteRegisterMS(context, gHDMIChannelToOutHDRMasterLuminanceVRegNum[channel], (ULWord)inRegisterValues.minMasteringLuminance,
+                            (ULWord)kRegMaskHDMIHDRMinMasteringLuminance, kRegShiftHDMIHDRMinMasteringLuminance);
+        ntv2WriteRegisterMS(context, gHDMIChannelToOutHDRLightLevelVRegNum[channel], (ULWord)inRegisterValues.maxContentLightLevel,
+                            kRegMaskHDMIHDRMaxContentLightLevel, kRegShiftHDMIHDRMaxContentLightLevel);
+        ntv2WriteRegisterMS(context, gHDMIChannelToOutHDRLightLevelVRegNum[channel], (ULWord)inRegisterValues.maxFrameAverageLightLevel,
+                            (ULWord)kRegMaskHDMIHDRMaxFrameAverageLightLevel, kRegShiftHDMIHDRMaxFrameAverageLightLevel);
+        ntv2WriteRegisterMS(context, gHDMIChannelToOutHDRControlVRegNum[channel], (ULWord)inRegisterValues.electroOpticalTransferFunction,
+                            kRegMaskElectroOpticalTransferFunction, kRegShiftElectroOpticalTransferFunction);
+        ntv2WriteRegisterMS(context, gHDMIChannelToOutHDRControlVRegNum[channel], (ULWord)inRegisterValues.staticMetadataDescriptorID,
+                            (ULWord)kRegMaskHDRStaticMetadataDescriptorID, kRegShiftHDRStaticMetadataDescriptorID);
+        ntv2WriteRegisterMS(context, gHDMIChannelToOutHDRControlVRegNum[channel], (ULWord)inRegisterValues.luminance,
+                            kRegMaskHDMIHDRNonContantLuminance, kRegShiftHDMIHDRNonContantLuminance);
+    }
+	return true;
+}
+
+bool GetHDRData(Ntv2SystemContext* context, HDRDriverValues* inRegisterValues, NTV2Channel channel)
+{
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+	ULWord hdmiVersion = NTV2DeviceGetHDMIVersion(deviceID);
+	ULWord temp = 0;
+
+	if (hdmiVersion < 6)
+    {    
+        ntv2ReadRegisterMS(context, kRegHDMIHDRGreenPrimary, &temp,
+                           kRegMaskHDMIHDRGreenPrimaryX, kRegShiftHDMIHDRGreenPrimaryX);
+        inRegisterValues->greenPrimaryX = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, kRegHDMIHDRGreenPrimary, &temp,
+                           (ULWord)kRegMaskHDMIHDRGreenPrimaryY, kRegShiftHDMIHDRGreenPrimaryY);
+        inRegisterValues->greenPrimaryY = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, kRegHDMIHDRBluePrimary, &temp,
+                           kRegMaskHDMIHDRBluePrimaryX, kRegShiftHDMIHDRBluePrimaryX);
+        inRegisterValues->bluePrimaryX = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, kRegHDMIHDRBluePrimary, &temp,
+                           (ULWord)kRegMaskHDMIHDRBluePrimaryY, kRegShiftHDMIHDRBluePrimaryY);
+        inRegisterValues->bluePrimaryY = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, kRegHDMIHDRRedPrimary, &temp,
+                           kRegMaskHDMIHDRRedPrimaryX, kRegShiftHDMIHDRRedPrimaryX);
+        inRegisterValues->redPrimaryX = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, kRegHDMIHDRRedPrimary, &temp,
+                           (ULWord)kRegMaskHDMIHDRRedPrimaryY, kRegShiftHDMIHDRRedPrimaryY);
+        inRegisterValues->redPrimaryY = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, kRegHDMIHDRWhitePoint, &temp,
+                           kRegMaskHDMIHDRWhitePointX, kRegShiftHDMIHDRWhitePointX);
+        inRegisterValues->whitePointX = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, kRegHDMIHDRWhitePoint, &temp,
+                           (ULWord)kRegMaskHDMIHDRWhitePointY, kRegShiftHDMIHDRWhitePointY);
+        inRegisterValues->whitePointY = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, kRegHDMIHDRMasteringLuminence, &temp,
+                           kRegMaskHDMIHDRMaxMasteringLuminance, kRegShiftHDMIHDRMaxMasteringLuminance);
+        inRegisterValues->maxMasteringLuminance = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, kRegHDMIHDRMasteringLuminence, &temp,
+                           (ULWord)kRegMaskHDMIHDRMinMasteringLuminance, kRegShiftHDMIHDRMinMasteringLuminance);
+        inRegisterValues->minMasteringLuminance = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, kRegHDMIHDRLightLevel, &temp,
+                           kRegMaskHDMIHDRMaxContentLightLevel, kRegShiftHDMIHDRMaxContentLightLevel);
+        inRegisterValues->maxContentLightLevel = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, kRegHDMIHDRLightLevel, &temp,
+                           (ULWord)kRegMaskHDMIHDRMaxFrameAverageLightLevel, kRegShiftHDMIHDRMaxFrameAverageLightLevel);
+        inRegisterValues->maxFrameAverageLightLevel = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, kRegHDMIHDRControl, &temp,
+                           kRegMaskElectroOpticalTransferFunction, kRegShiftElectroOpticalTransferFunction);
+        inRegisterValues->electroOpticalTransferFunction = (uint8_t)temp;
+        ntv2ReadRegisterMS(context, kRegHDMIHDRControl, &temp,
+                           (ULWord)kRegMaskHDRStaticMetadataDescriptorID, kRegShiftHDRStaticMetadataDescriptorID);
+        inRegisterValues->staticMetadataDescriptorID = (uint8_t)temp;
+        ntv2ReadRegisterMS(context, kRegHDMIHDRControl, &temp,
+                           kRegMaskHDMIHDRNonContantLuminance, kRegShiftHDMIHDRNonContantLuminance);
+        inRegisterValues->luminance = (uint8_t)temp;
+    }
+    else
+    {
+        ntv2ReadRegisterMS(context, gHDMIChannelToOutHDRGreenPrimaryVRegNum[channel], &temp,
+                           kRegMaskHDMIHDRGreenPrimaryX, kRegShiftHDMIHDRGreenPrimaryX);
+        inRegisterValues->greenPrimaryX = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, gHDMIChannelToOutHDRGreenPrimaryVRegNum[channel], &temp,
+                           (ULWord)kRegMaskHDMIHDRGreenPrimaryY, kRegShiftHDMIHDRGreenPrimaryY);
+        inRegisterValues->greenPrimaryY = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, gHDMIChannelToOutHDRBluePrimaryVRegNum[channel], &temp,
+                           kRegMaskHDMIHDRBluePrimaryX, kRegShiftHDMIHDRBluePrimaryX);
+        inRegisterValues->bluePrimaryX = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, gHDMIChannelToOutHDRBluePrimaryVRegNum[channel], &temp,
+                           (ULWord)kRegMaskHDMIHDRBluePrimaryY, kRegShiftHDMIHDRBluePrimaryY);
+        inRegisterValues->bluePrimaryY = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, gHDMIChannelToOutHDRRedPrimaryVRegNum[channel], &temp,
+                           kRegMaskHDMIHDRRedPrimaryX, kRegShiftHDMIHDRRedPrimaryX);
+        inRegisterValues->redPrimaryX = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, gHDMIChannelToOutHDRRedPrimaryVRegNum[channel], &temp,
+                           (ULWord)kRegMaskHDMIHDRRedPrimaryY, kRegShiftHDMIHDRRedPrimaryY);
+        inRegisterValues->redPrimaryY = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, gHDMIChannelToOutHDRWhitePointVRegNum[channel], &temp,
+                           kRegMaskHDMIHDRWhitePointX, kRegShiftHDMIHDRWhitePointX);
+        inRegisterValues->whitePointX = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, gHDMIChannelToOutHDRWhitePointVRegNum[channel], &temp,
+                           (ULWord)kRegMaskHDMIHDRWhitePointY, kRegShiftHDMIHDRWhitePointY);
+        inRegisterValues->whitePointY = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, gHDMIChannelToOutHDRMasterLuminanceVRegNum[channel], &temp,
+                           kRegMaskHDMIHDRMaxMasteringLuminance, kRegShiftHDMIHDRMaxMasteringLuminance);
+        inRegisterValues->maxMasteringLuminance = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, gHDMIChannelToOutHDRMasterLuminanceVRegNum[channel], &temp,
+                           (ULWord)kRegMaskHDMIHDRMinMasteringLuminance, kRegShiftHDMIHDRMinMasteringLuminance);
+        inRegisterValues->minMasteringLuminance = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, gHDMIChannelToOutHDRLightLevelVRegNum[channel], &temp,
+                           kRegMaskHDMIHDRMaxContentLightLevel, kRegShiftHDMIHDRMaxContentLightLevel);
+        inRegisterValues->maxContentLightLevel = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, gHDMIChannelToOutHDRLightLevelVRegNum[channel], &temp,
+                           (ULWord)kRegMaskHDMIHDRMaxFrameAverageLightLevel, kRegShiftHDMIHDRMaxFrameAverageLightLevel);
+        inRegisterValues->maxFrameAverageLightLevel = (uint16_t)temp;
+        ntv2ReadRegisterMS(context, gHDMIChannelToOutHDRControlVRegNum[channel], &temp,
+                           kRegMaskElectroOpticalTransferFunction, kRegShiftElectroOpticalTransferFunction);
+        inRegisterValues->electroOpticalTransferFunction = (uint8_t)temp;
+        ntv2ReadRegisterMS(context, gHDMIChannelToOutHDRControlVRegNum[channel], &temp,
+                           (ULWord)kRegMaskHDRStaticMetadataDescriptorID, kRegShiftHDRStaticMetadataDescriptorID);
+        inRegisterValues->staticMetadataDescriptorID = (uint8_t)temp;
+        ntv2ReadRegisterMS(context, gHDMIChannelToOutHDRControlVRegNum[channel], &temp,
+                           kRegMaskHDMIHDRNonContantLuminance, kRegShiftHDMIHDRNonContantLuminance);
+        inRegisterValues->luminance = (uint8_t)temp;
+    }
+	return true;
+}
+
+///////////////////////
+//input routines
+bool SetLHiAnalogOutputStandard(Ntv2SystemContext* context)
+{
+	NTV2Standard standard = NTV2_NUM_STANDARDS;
+	NTV2VideoFormat videoFormat = NTV2_FORMAT_UNKNOWN;
+	NTV2OutputXptID xptSelect;
+	ULWord analogOutput = 0;
+	bool isQuadMode = false;
+	bool isQuadQuadMode = false;
+	HDRDriverValues hdrRegValues;
+	NTV2LHIVideoDACMode dacMode;
+	NTV2Standard dacStandard;
+
+	if(!FindAnalogOutputSource(context, &xptSelect))
+	{
+		return false;
+	}
+
+	if(xptSelect == NTV2_XptConversionModule)
+	{
+		if(!GetConverterOutStandard(context, &standard))
+		{
+			return false;
+		}
+	}
+	else
+	{
+		if (GetSourceVideoFormat(context, &videoFormat, xptSelect, &isQuadMode, &isQuadQuadMode, &hdrRegValues))
+		{
+			standard = GetNTV2StandardFromVideoFormat(videoFormat);
+		}
+		else
+		{
+			return false;
+		}
+	}
+
+	analogOutput = ntv2ReadRegister(context, kRegAnalogOutControl);
+	dacMode = (NTV2LHIVideoDACMode)((analogOutput & kLHIRegMaskVideoDACMode) >> kLHIRegShiftVideoDACMode);
+	dacStandard = (NTV2Standard)((analogOutput & kLHIRegMaskVideoDACStandard) >> kLHIRegShiftVideoDACStandard);
+
+	if(dacStandard != standard)
+	{
+		ntv2WriteRegisterMS(context, kRegAnalogOutControl, standard, kLHIRegMaskVideoDACStandard, kLHIRegShiftVideoDACStandard);
+	}
+
+	switch(standard)
+	{
+	case NTV2_STANDARD_1080:
+		{
+			if((dacMode == NTV2LHI_1080iRGB) ||
+				(dacMode == NTV2LHI_1080psfRGB) ||
+				(dacMode == NTV2LHI_1080iSMPTE) ||
+				(dacMode == NTV2LHI_1080psfSMPTE))
+			{
+				return true;
+			}
+			ntv2WriteRegisterMS(context, kRegAnalogOutControl, dacMode, kLHIRegMaskVideoDACMode, kLHIRegShiftVideoDACMode);
+			return true;
+		}
+	case NTV2_STANDARD_720:
+		{
+			if((dacMode == NTV2LHI_720pRGB) ||
+				(dacMode == NTV2LHI_720pSMPTE))
+			{
+				return true;
+			}
+			ntv2WriteRegisterMS(context, kRegAnalogOutControl, dacMode, kLHIRegMaskVideoDACMode, kLHIRegShiftVideoDACMode);
+			return true;
+		}
+	case NTV2_STANDARD_525: 
+		{
+			if((dacMode == NTV2LHI_480iRGB) ||
+				(dacMode == NTV2LHI_480iYPbPrSMPTE) ||
+				(dacMode == NTV2LHI_480iYPbPrBetacam525) ||
+				(dacMode == NTV2LHI_480iYPbPrBetacamJapan) ||
+				(dacMode == NTV2LHI_480iNTSC_US_Composite) ||
+				(dacMode == NTV2LHI_480iNTSC_Japan_Composite))
+			{
+				return true;
+			}
+			ntv2WriteRegisterMS(context, kRegAnalogOutControl, dacMode, kLHIRegMaskVideoDACMode, kLHIRegShiftVideoDACMode);
+			return true;
+		}
+	case NTV2_STANDARD_625:
+		{
+			if((dacMode == NTV2LHI_576iRGB) ||
+				(dacMode == NTV2LHI_576iYPbPrSMPTE) ||
+				(dacMode == NTV2LHI_576iPAL_Composite))
+			{
+				return true;
+			}
+			ntv2WriteRegisterMS(context, kRegAnalogOutControl, dacMode, kLHIRegMaskVideoDACMode, kLHIRegShiftVideoDACMode);
+			return true;
+		}
+	default:
+		break;
+	}
+
+	return false;
+}
+
+
+///////////////////////
+//input routines
+bool GetSourceVideoFormat(Ntv2SystemContext* context, NTV2VideoFormat* format, NTV2OutputXptID crosspoint, bool* quadMode, bool* quadQuadMode, HDRDriverValues* hdrRegValues)
+{	
+	NTV2VideoFormat videoFormat = NTV2_FORMAT_UNKNOWN;
+	NTV2VideoFormat shadowFormat = NTV2_FORMAT_UNKNOWN;
+	NTV2Channel multiFormatModeChannel = NTV2_CHANNEL1;
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+	bool multiFormatActive = IsMultiFormatActive(context);
+	memset(hdrRegValues, 0, sizeof(HDRDriverValues));
+
+	switch(crosspoint)
+	{
+	case NTV2_XptSDIIn1:
+	case NTV2_XptSDIIn1DS2:
+	case NTV2_XptSDIIn2:
+	case NTV2_XptSDIIn2DS2:
+	case NTV2_XptSDIIn3:
+	case NTV2_XptSDIIn3DS2:
+	case NTV2_XptSDIIn4:
+	case NTV2_XptSDIIn4DS2:
+	case NTV2_XptSDIIn5:
+	case NTV2_XptSDIIn5DS2:
+	case NTV2_XptSDIIn6:
+	case NTV2_XptSDIIn6DS2:
+	case NTV2_XptSDIIn7:
+	case NTV2_XptSDIIn7DS2:
+	case NTV2_XptSDIIn8:
+	case NTV2_XptSDIIn8DS2:
+		videoFormat = GetInputVideoFormat(context, GetOutXptChannel(crosspoint, multiFormatActive));
+		ReadFSHDRRegValues(context, NTV2_CHANNEL1, hdrRegValues);
+		*quadMode = (GetSDIIn6GEnable(context, GetOutXptChannel(crosspoint, multiFormatActive)) || GetSDIIn12GEnable(context, GetOutXptChannel(crosspoint, multiFormatActive))) ? true : false;
+		break;
+	case NTV2_XptHDMIIn1:
+	case NTV2_XptHDMIIn1Q2:
+	case NTV2_XptHDMIIn1Q3:
+	case NTV2_XptHDMIIn1Q4:
+	case NTV2_XptHDMIIn1RGB:
+	case NTV2_XptHDMIIn1Q2RGB:
+	case NTV2_XptHDMIIn1Q3RGB:
+	case NTV2_XptHDMIIn1Q4RGB:
+		videoFormat = GetHDMIInputVideoFormat(context);
+		*quadMode = NTV2_IS_QUAD_FRAME_FORMAT(videoFormat) && NTV2DeviceCanDo12gRouting(deviceID);
+		ReadFSHDRRegValues(context, NTV2_CHANNEL1, hdrRegValues);
+		break;
+	case NTV2_XptAnalogIn:
+		videoFormat = GetAnalogInputVideoFormat(context);
+		break;
+	case NTV2_XptDuallinkIn1:
+	case NTV2_XptDuallinkIn2:
+	case NTV2_XptDuallinkIn3:
+	case NTV2_XptDuallinkIn4:
+	case NTV2_XptDuallinkIn5:
+	case NTV2_XptDuallinkIn6:
+	case NTV2_XptDuallinkIn7:
+	case NTV2_XptDuallinkIn8:
+		videoFormat = GetInputVideoFormat(context, GetOutXptChannel(crosspoint, multiFormatActive));
+		ReadFSHDRRegValues(context, NTV2_CHANNEL1, hdrRegValues);
+		break;
+	case NTV2_XptFrameBuffer1YUV:
+	case NTV2_XptFrameBuffer1RGB:
+	case NTV2_XptFrameBuffer2YUV:
+	case NTV2_XptFrameBuffer2RGB:
+	case NTV2_XptFrameBuffer3YUV:
+	case NTV2_XptFrameBuffer3RGB:
+	case NTV2_XptFrameBuffer4YUV:
+	case NTV2_XptFrameBuffer4RGB:
+	case NTV2_XptFrameBuffer5YUV:
+	case NTV2_XptFrameBuffer5RGB:
+	case NTV2_XptFrameBuffer6YUV:
+	case NTV2_XptFrameBuffer6RGB:
+	case NTV2_XptFrameBuffer7YUV:
+	case NTV2_XptFrameBuffer7RGB:
+	case NTV2_XptFrameBuffer8YUV:
+	case NTV2_XptFrameBuffer8RGB:
+	case NTV2_XptFrameBuffer1_DS2YUV:
+	case NTV2_XptFrameBuffer1_DS2RGB:
+	case NTV2_XptFrameBuffer2_DS2YUV:
+	case NTV2_XptFrameBuffer2_DS2RGB:
+	case NTV2_XptFrameBuffer3_DS2YUV:
+	case NTV2_XptFrameBuffer3_DS2RGB:
+	case NTV2_XptFrameBuffer4_DS2YUV:
+	case NTV2_XptFrameBuffer4_DS2RGB:
+	case NTV2_XptFrameBuffer5_DS2YUV:
+	case NTV2_XptFrameBuffer5_DS2RGB:
+	case NTV2_XptFrameBuffer6_DS2YUV:
+	case NTV2_XptFrameBuffer6_DS2RGB:
+	case NTV2_XptFrameBuffer7_DS2YUV:
+	case NTV2_XptFrameBuffer7_DS2RGB:
+	case NTV2_XptFrameBuffer8_DS2YUV:
+	case NTV2_XptFrameBuffer8_DS2RGB:
+		multiFormatModeChannel = GetOutXptChannel(crosspoint, multiFormatActive);
+		videoFormat = GetBoardVideoFormat(context, multiFormatModeChannel);
+		shadowFormat = (NTV2VideoFormat)ntv2ReadVirtualRegister(context, gShadowRegs[multiFormatModeChannel]);
+		if (!NTV2_VIDEO_FORMAT_HAS_PROGRESSIVE_PICTURE(videoFormat) && NTV2_IS_PSF_VIDEO_FORMAT(shadowFormat))
+		{
+			videoFormat = shadowFormat;
+		}
+		*quadMode = GetQuadFrameEnable(context, multiFormatModeChannel);
+		*quadQuadMode = GetQuadQuadFrameEnable(context, multiFormatModeChannel);
+		ReadFSHDRRegValues(context, multiFormatModeChannel, hdrRegValues);
+		break;
+	case NTV2_XptBlack:
+	case NTV2_Xpt4KDownConverterOut:
+	case NTV2_Xpt4KDownConverterOutRGB:
+		videoFormat = GetBoardVideoFormat(context, NTV2_CHANNEL1);
+		break;
+	default:
+		return false;
+	};
+
+	if(format != NULL)
+	{
+		*format = videoFormat;
+	}
+
+	return true;
+}
+
+NTV2VideoFormat GetInputVideoFormat(Ntv2SystemContext* context, NTV2Channel channel)
+{
+	NTV2FrameRate frameRate;
+	NTV2Standard standard;
+	NTV2ScanGeometry scanGeometry;
+	ULWord inputStatus = 0;
+	ULWord input3GStatus = 0;
+	ULWord progressive = 0;
+	ULWord is2Kx1080 = 0;
+	ULWord is3Gb = 0;
+
+	ULWord regNum = gChannelToInputStatesRegs[channel];
+	ULWord rateMask = gChannelToInputStatusRateMasks[channel];
+	ULWord rateShift = gChannelToInputStatusRateShifts[channel];
+	ULWord rateHighShift = gChannelToInputStatusRateHighShifts[channel];
+	ULWord rateHighMask = gChannelToInputStatusRateHighMasks[channel];
+	ULWord scanMask = gChannelToScanMasks[channel];
+	ULWord scanShift = gChannelToScanShifts[channel];
+	ULWord scanHighMask = gChannelToScanHighMasks[channel];
+	ULWord scanHighShift = gChannelToScanHighShifts[channel];
+	ULWord progressiveMask = gChannelToProgressiveMasks[channel];
+	ULWord progressiveShift = gChannelToProgressiveShifts[channel];
+	ULWord regNum3g = gChannelToSDIInput3GStatusRegNum[channel];
+	ULWord mask3g = gChannelToLevelBMasks[channel];
+	ULWord shift3g = gChannelToLevelBShifts[channel];
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+
+
+	inputStatus = ntv2ReadRegister(context, regNum);
+	frameRate = (NTV2FrameRate)(((inputStatus & rateMask) >> rateShift) |
+		((inputStatus & rateHighMask) >> rateHighShift << 3));
+	scanGeometry = (NTV2ScanGeometry)(((inputStatus & scanMask) >> scanShift) |
+		((inputStatus & scanHighMask) >> scanHighShift << 3));
+	progressive = (inputStatus & progressiveMask) >> progressiveShift;
+
+	standard = GetStandardFromScanGeometry(scanGeometry, progressive);
+	is2Kx1080 = IsScanGeometry2Kx1080(scanGeometry);
+
+	if(NTV2DeviceCanDo3GIn(deviceID, (UWord)channel) || NTV2DeviceCanDo12GIn(deviceID, (UWord)channel))
+	{
+		input3GStatus = ntv2ReadRegister(context, regNum3g);
+		if (NTV2DeviceCanDo3GLevelConversion(deviceID))
+		{
+			bool bBToAEnabled = false;
+			GetSDIInLevelBtoLevelAConversion(context, channel, &bBToAEnabled);
+			is3Gb = bBToAEnabled ? false : (input3GStatus & mask3g) >> shift3g;
+			standard = bBToAEnabled ? GetStandardFromScanGeometry(scanGeometry, true) : standard;
+			if (bBToAEnabled)
+			{
+				switch (frameRate)
+				{
+					case NTV2_FRAMERATE_3000:
+						frameRate = NTV2_FRAMERATE_6000;
+						break;
+					case NTV2_FRAMERATE_2997:
+						frameRate = NTV2_FRAMERATE_5994;
+						break;
+					case NTV2_FRAMERATE_2500:
+						frameRate = NTV2_FRAMERATE_5000;
+						break;
+					case NTV2_FRAMERATE_2400:
+						frameRate = NTV2_FRAMERATE_4800;
+						break;
+					case NTV2_FRAMERATE_2398:
+						frameRate = NTV2_FRAMERATE_4795;
+						break;
+					default:
+						break;
+				}
+			}
+		}
+		else
+			is3Gb = (input3GStatus & mask3g) >> shift3g;
+	}
+
+	return GetVideoFormatFromState(standard, frameRate, is2Kx1080, is3Gb);
+}
+
+NTV2VideoFormat GetHDMIInputVideoFormat(Ntv2SystemContext* context)
+{
+	NTV2Standard standard;
+	NTV2Standard v2Standard;
+	NTV2FrameRate frameRate;
+	NTV2VideoFormat format;
+	ULWord status, is2kx1080;
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+	is2kx1080 = 0;
+
+	if(NTV2DeviceCanDoInputSource(deviceID, NTV2_INPUTSOURCE_HDMI1))
+	{
+		ULWord hdmiVersion = NTV2DeviceGetHDMIVersion(deviceID);
+		status = ntv2ReadRegister(context, kRegHDMIInputStatus);
+
+		if(hdmiVersion == 1)
+		{
+			if((status & (BIT_0 | BIT_1)) != (BIT_0 | BIT_1))
+			{
+				return NTV2_FORMAT_UNKNOWN;
+			}
+			standard = (NTV2Standard)((status & kRegMaskInputStatusStd) >> kRegShiftInputStatusStd);
+			frameRate = (NTV2FrameRate)((status & kRegMaskInputStatusFPS) >> kRegShiftInputStatusFPS);
+			return GetVideoFormatFromState(standard, frameRate, 0, 0);
+		}
+		else if(hdmiVersion >= 2)
+		{
+			if((status & (BIT_0)) != (BIT_0))
+			{
+				return NTV2_FORMAT_UNKNOWN;
+			}
+			frameRate = (NTV2FrameRate)((status &kRegMaskInputStatusFPS) >> kRegShiftInputStatusFPS);
+			v2Standard = (NTV2Standard)((status & kRegMaskHDMIInV2VideoStd) >> kRegShiftHDMIInV2VideoStd);
+			//ntv2Message("GHI rate = %d, standard = %d", frameRate, v2Standard);
+			switch(v2Standard)
+			{
+			case NTV2_STANDARD_1080:
+				standard = NTV2_STANDARD_1080;
+				break;
+			case NTV2_STANDARD_720:
+				standard = NTV2_STANDARD_720;
+				break;
+			case NTV2_STANDARD_525:
+				standard = NTV2_STANDARD_525;
+				break;
+			case NTV2_STANDARD_625:
+				standard = NTV2_STANDARD_625;
+				break;
+			case NTV2_STANDARD_1080p:
+			case NTV2_STANDARD_3840x2160p:
+				standard = NTV2_STANDARD_1080p;
+				break;
+			case NTV2_STANDARD_2Kx1080p:
+			case NTV2_STANDARD_4096x2160p:
+				standard = NTV2_STANDARD_1080p;
+				is2kx1080 = 1;
+				break;
+			default:
+				return NTV2_FORMAT_UNKNOWN;
+			}
+
+			format = GetVideoFormatFromState(standard, frameRate, is2kx1080, 0);
+			if(NTV2_IS_QUAD_STANDARD(v2Standard))
+				format = GetQuadSizedVideoFormat(format);
+			return format;
+		}
+		else
+			return NTV2_FORMAT_UNKNOWN;
+	}
+	else
+	{
+		return NTV2_FORMAT_UNKNOWN;
+	}
+}
+
+NTV2VideoFormat GetAnalogInputVideoFormat(Ntv2SystemContext* context)
+{
+	NTV2Standard standard;
+	NTV2FrameRate frameRate;
+	ULWord status = 0;
+	NTV2DeviceID deviceID = (NTV2DeviceID)ntv2ReadRegister(context, kRegBoardID);
+
+	if(NTV2DeviceCanDoInputSource(deviceID, NTV2_INPUTSOURCE_ANALOG1))
+	{
+		status = ntv2ReadRegister(context, kRegAnalogInputStatus);
+		if((status & kRegMaskInputStatusLock) == 0)
+		{
+			return NTV2_FORMAT_UNKNOWN;
+		}
+
+		standard = (NTV2Standard)((status & kRegMaskInputStatusStd) >> kRegShiftInputStatusStd);
+		frameRate = (NTV2FrameRate)((status & kRegMaskInputStatusFPS) >> kRegShiftInputStatusFPS);
+
+		return GetVideoFormatFromState(standard, frameRate, 0, 0);
+	}
+
+	return NTV2_FORMAT_UNKNOWN;
+}
+
+///////////////////////
+//converter routines
+bool GetK2ConverterOutFormat(Ntv2SystemContext* context, NTV2VideoFormat* format)
+{
+	NTV2VideoFormat outFormat = NTV2_FORMAT_UNKNOWN;
+	NTV2Standard standard = NTV2_NUM_STANDARDS;
+	NTV2VideoFormat videoFormat = NTV2_FORMAT_UNKNOWN;
+	NTV2OutputXptID xptSelect;
+	bool isQuadMode = false;
+	bool isQuadQuadMode = false;
+	HDRDriverValues hdrRegValues;
+
+	if(!FindCrosspointSource(context, &xptSelect, NTV2_XptConversionModule))
+	{
+		return false;
+	}
+	if (!GetSourceVideoFormat(context, &videoFormat, xptSelect, &isQuadMode, &isQuadQuadMode, &hdrRegValues))
+	{
+		return false;
+	}
+
+	if(!GetConverterOutStandard(context, &standard))
+	{
+		return false;
+	}
+
+	switch(videoFormat)
+	{
+	case NTV2_FORMAT_1080i_6000:
+	case NTV2_FORMAT_1080p_6000_A:
+	case NTV2_FORMAT_1080p_6000_B:
+	case NTV2_FORMAT_720p_6000:
+		switch(standard)
+		{
+		case NTV2_STANDARD_1080:
+			outFormat = NTV2_FORMAT_1080i_6000;
+			break;
+		case NTV2_STANDARD_720:
+			outFormat = NTV2_FORMAT_720p_6000;
+			break;
+		case NTV2_STANDARD_1080p:
+			outFormat = NTV2_FORMAT_1080p_6000_B;
+			break;
+		default:
+			return false;
+		}
+		break;
+	case NTV2_FORMAT_1080i_5994:
+	case NTV2_FORMAT_1080p_5994_A:
+	case NTV2_FORMAT_1080p_5994_B:
+	case NTV2_FORMAT_720p_5994:
+	case NTV2_FORMAT_525_5994:
+		switch(standard)
+		{
+		case NTV2_STANDARD_1080:
+			outFormat = NTV2_FORMAT_1080i_5994;
+			break;
+		case NTV2_STANDARD_720:
+			outFormat = NTV2_FORMAT_720p_5994;
+			break;
+		case NTV2_STANDARD_525:
+			outFormat = NTV2_FORMAT_525_5994;
+			break;
+		case NTV2_STANDARD_1080p:
+			outFormat = NTV2_FORMAT_1080p_5994_B;
+			break;
+		default:
+			return false;
+		}
+		break;
+	case NTV2_FORMAT_1080i_5000:
+	case NTV2_FORMAT_1080p_5000_A:
+	case NTV2_FORMAT_1080p_5000_B:
+	case NTV2_FORMAT_720p_5000:
+	case NTV2_FORMAT_625_5000:
+		switch(standard)
+		{
+		case NTV2_STANDARD_1080:
+			outFormat = NTV2_FORMAT_1080i_5000;
+			break;
+		case NTV2_STANDARD_720:
+			outFormat = NTV2_FORMAT_720p_5000;
+			break;
+		case NTV2_STANDARD_625:
+			outFormat = NTV2_FORMAT_625_5000;
+			break;
+		case NTV2_STANDARD_1080p:
+			outFormat = NTV2_FORMAT_1080p_5000_B;
+			break;
+		default:
+			return false;
+		}
+		break;
+	case NTV2_FORMAT_1080psf_2400:
+	case NTV2_FORMAT_1080psf_2K_2400:
+		switch(standard)
+		{
+		case NTV2_STANDARD_1080:
+			outFormat = NTV2_FORMAT_1080psf_2400;
+			break;
+		case NTV2_STANDARD_2K:
+			outFormat = NTV2_FORMAT_1080psf_2K_2400;
+			break;
+		default:
+			return false;
+		}
+		break;
+	case NTV2_FORMAT_1080psf_2398:
+	case NTV2_FORMAT_1080psf_2K_2398:
+		switch(standard)
+		{
+		case NTV2_STANDARD_1080:
+			outFormat = NTV2_FORMAT_1080psf_2398;
+			break;
+		case NTV2_STANDARD_2K:
+			outFormat = NTV2_FORMAT_1080psf_2K_2398;
+			break;
+		default:
+			return false;
+		}
+		break;
+	case NTV2_FORMAT_1080p_3000:
+	case NTV2_FORMAT_2K_1500:
+		switch(standard)
+		{
+		case NTV2_STANDARD_1080p:
+			outFormat = NTV2_FORMAT_1080p_3000;
+			break;
+		case NTV2_STANDARD_2K:
+			outFormat = NTV2_FORMAT_2K_1500;
+			break;
+		default:
+			return false;
+		}
+		break;
+	case NTV2_FORMAT_1080p_2997:
+	case NTV2_FORMAT_2K_1498:
+		switch(standard)
+		{
+		case NTV2_STANDARD_1080p:
+			outFormat = NTV2_FORMAT_1080p_2997;
+			break;
+		case NTV2_STANDARD_2K:
+			outFormat = NTV2_FORMAT_2K_1498;
+			break;
+		default:
+			return false;
+		}
+		break;
+	case NTV2_FORMAT_1080p_2500:
+		switch(standard)
+		{
+		case NTV2_STANDARD_1080p:
+			outFormat = NTV2_FORMAT_1080p_2500;
+			break;
+		case NTV2_STANDARD_2K:
+			outFormat = NTV2_FORMAT_1080p_2K_2500;
+			break;
+		default:
+			return false;
+		}
+		break;
+	case NTV2_FORMAT_1080p_2400:
+	case NTV2_FORMAT_1080p_2K_2400:
+		switch(standard)
+		{
+		case NTV2_STANDARD_1080p:
+			outFormat = NTV2_FORMAT_1080p_2400;
+			break;
+		case NTV2_STANDARD_2K:
+			outFormat = NTV2_FORMAT_1080p_2K_2400;
+			break;
+		default:
+			return false;
+		}
+		break;
+	case NTV2_FORMAT_1080p_2398:
+	case NTV2_FORMAT_1080p_2K_2398:
+		switch(standard)
+		{
+		case NTV2_STANDARD_1080p:
+			outFormat = NTV2_FORMAT_1080p_2398;
+			break;
+		case NTV2_STANDARD_2K:
+			outFormat = NTV2_FORMAT_1080p_2K_2398;
+			break;
+		default:
+			return false;
+		}
+		break;
+	default:
+		return false;
+	}
+
+	if(format != NULL)
+	{
+		*format = outFormat;
+	}
+
+	return true;
+}
+
+////////////////////////////////////////////////////////////////////////
+//util routines
+ULWord IsScanGeometry2Kx1080(NTV2ScanGeometry scanGeometry)
+{
+	switch (scanGeometry)
+	{
+	case NTV2_SG_2Kx1080:
+		return 1;
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+bool IsVideoFormat2Kx1080(NTV2VideoFormat videoFormat)
+
+{
+
+	if (NTV2_IS_2K_1080_VIDEO_FORMAT(videoFormat) || NTV2_IS_4K_4096_VIDEO_FORMAT(videoFormat) || NTV2_IS_UHD2_FULL_VIDEO_FORMAT(videoFormat))
+		return true;
+	else
+		return false;
+
+}
+
+NTV2Crosspoint GetNTV2CrosspointChannelForIndex(ULWord index)
+{
+	switch(index)
+	{
+	default:
+	case 0:	return NTV2CROSSPOINT_CHANNEL1;
+	case 1:	return NTV2CROSSPOINT_CHANNEL2;
+	case 2:	return NTV2CROSSPOINT_CHANNEL3;
+	case 3:	return NTV2CROSSPOINT_CHANNEL4;
+	case 4: return NTV2CROSSPOINT_CHANNEL5;
+	case 5: return NTV2CROSSPOINT_CHANNEL6;
+	case 6: return NTV2CROSSPOINT_CHANNEL7;
+	case 7: return NTV2CROSSPOINT_CHANNEL8;
+	}
+}
+
+ULWord GetIndexForNTV2CrosspointChannel(NTV2Crosspoint channel)
+{
+	switch(channel)
+	{
+	default:
+	case NTV2CROSSPOINT_CHANNEL1:	return 0;
+	case NTV2CROSSPOINT_CHANNEL2:	return 1;
+	case NTV2CROSSPOINT_CHANNEL3:	return 2;
+	case NTV2CROSSPOINT_CHANNEL4:	return 3;
+	case NTV2CROSSPOINT_CHANNEL5:	return 4;
+	case NTV2CROSSPOINT_CHANNEL6:	return 5;
+	case NTV2CROSSPOINT_CHANNEL7:	return 6;
+	case NTV2CROSSPOINT_CHANNEL8:	return 7;
+	}
+}
+
+NTV2Crosspoint GetNTV2CrosspointInputForIndex(ULWord index)
+{
+	switch(index)
+	{
+	default:
+	case 0:	return NTV2CROSSPOINT_INPUT1;
+	case 1:	return NTV2CROSSPOINT_INPUT2;
+	case 2:	return NTV2CROSSPOINT_INPUT3;
+	case 3:	return NTV2CROSSPOINT_INPUT4;
+	case 4:	return NTV2CROSSPOINT_INPUT5;
+	case 5:	return NTV2CROSSPOINT_INPUT6;
+	case 6:	return NTV2CROSSPOINT_INPUT7;
+	case 7:	return NTV2CROSSPOINT_INPUT8;
+	}
+}
+
+ULWord GetIndexForNTV2CrosspointInput(NTV2Crosspoint channel)
+{
+	switch(channel)
+	{
+	default:
+	case NTV2CROSSPOINT_INPUT1:	return 0;
+	case NTV2CROSSPOINT_INPUT2:	return 1;
+	case NTV2CROSSPOINT_INPUT3:	return 2;
+	case NTV2CROSSPOINT_INPUT4:	return 3;
+	case NTV2CROSSPOINT_INPUT5:	return 4;
+	case NTV2CROSSPOINT_INPUT6:	return 5;
+	case NTV2CROSSPOINT_INPUT7:	return 6;
+	case NTV2CROSSPOINT_INPUT8:	return 7;
+	}
+}
+
+NTV2Crosspoint GetNTV2CrosspointForIndex(ULWord index)
+{
+	switch(index)
+	{
+	default:
+	case 0:	return NTV2CROSSPOINT_CHANNEL1;
+	case 1:	return NTV2CROSSPOINT_CHANNEL2;
+	case 2:	return NTV2CROSSPOINT_CHANNEL3;
+	case 3:	return NTV2CROSSPOINT_CHANNEL4;
+	case 4:	return NTV2CROSSPOINT_INPUT1;
+	case 5:	return NTV2CROSSPOINT_INPUT2;
+	case 6:	return NTV2CROSSPOINT_INPUT3;
+	case 7:	return NTV2CROSSPOINT_INPUT4;
+	case 8:	return NTV2CROSSPOINT_CHANNEL5;
+	case 9:	return NTV2CROSSPOINT_CHANNEL6;
+	case 10: return NTV2CROSSPOINT_CHANNEL7;
+	case 11: return NTV2CROSSPOINT_CHANNEL8;
+	case 12: return NTV2CROSSPOINT_INPUT5;
+	case 13: return NTV2CROSSPOINT_INPUT6;
+	case 14: return NTV2CROSSPOINT_INPUT7;
+	case 15: return NTV2CROSSPOINT_INPUT8;
+	}
+}
+
+ULWord GetIndexForNTV2Crosspoint(NTV2Crosspoint channel)
+{
+	switch(channel)
+	{
+	default:
+	case NTV2CROSSPOINT_CHANNEL1:	return 0;
+	case NTV2CROSSPOINT_CHANNEL2:	return 1;
+	case NTV2CROSSPOINT_CHANNEL3:	return 2;
+	case NTV2CROSSPOINT_CHANNEL4:	return 3;
+	case NTV2CROSSPOINT_INPUT1:		return 4;
+	case NTV2CROSSPOINT_INPUT2:		return 5;
+	case NTV2CROSSPOINT_INPUT3:		return 6;
+	case NTV2CROSSPOINT_INPUT4:		return 7;
+	case NTV2CROSSPOINT_CHANNEL5:	return 8;
+	case NTV2CROSSPOINT_CHANNEL6:	return 9;
+	case NTV2CROSSPOINT_CHANNEL7:	return 10;
+	case NTV2CROSSPOINT_CHANNEL8:	return 11;
+	case NTV2CROSSPOINT_INPUT5:		return 12;
+	case NTV2CROSSPOINT_INPUT6:		return 13;
+	case NTV2CROSSPOINT_INPUT7:		return 14;
+	case NTV2CROSSPOINT_INPUT8:		return 15;
+	}
+}
+
+NTV2Channel GetNTV2ChannelForNTV2Crosspoint(NTV2Crosspoint crosspoint)
+{
+	NTV2Channel channel;
+	switch(crosspoint)
+	{
+	default:
+	case NTV2CROSSPOINT_CHANNEL1:
+	case NTV2CROSSPOINT_INPUT1:
+		channel = NTV2_CHANNEL1;
+		break;
+	case NTV2CROSSPOINT_CHANNEL2:
+	case NTV2CROSSPOINT_INPUT2:
+		channel = NTV2_CHANNEL2;
+		break;
+	case NTV2CROSSPOINT_CHANNEL3:
+	case NTV2CROSSPOINT_INPUT3:
+		channel = NTV2_CHANNEL3;
+		break;
+	case NTV2CROSSPOINT_CHANNEL4:
+	case NTV2CROSSPOINT_INPUT4:
+		channel = NTV2_CHANNEL4;
+		break;
+	case NTV2CROSSPOINT_CHANNEL5:
+	case NTV2CROSSPOINT_INPUT5:
+		channel = NTV2_CHANNEL5;
+		break;
+	case NTV2CROSSPOINT_CHANNEL6:
+	case NTV2CROSSPOINT_INPUT6:
+		channel = NTV2_CHANNEL6;
+		break;
+	case NTV2CROSSPOINT_CHANNEL7:
+	case NTV2CROSSPOINT_INPUT7:
+		channel = NTV2_CHANNEL7;
+		break;
+	case NTV2CROSSPOINT_CHANNEL8:
+	case NTV2CROSSPOINT_INPUT8:
+		channel = NTV2_CHANNEL8;
+		break;
+	}
+	return channel;
+}
+
+NTV2VideoFormat GetVideoFormatFromState(NTV2Standard standard,
+									NTV2FrameRate frameRate,
+									ULWord is2Kx1080,
+									ULWord smpte372Enabled)
+{
+	NTV2VideoFormat format = NTV2_FORMAT_UNKNOWN;
+
+	switch (standard)
+	{
+	case NTV2_STANDARD_1080:
+		switch (frameRate)
+		{
+		case NTV2_FRAMERATE_3000:
+			if (smpte372Enabled)
+				format = NTV2_FORMAT_1080p_6000_B;
+			else
+				format = NTV2_FORMAT_1080i_6000;
+			break;
+		case NTV2_FRAMERATE_2997:
+			if (smpte372Enabled)
+				format = NTV2_FORMAT_1080p_5994_B;
+			else
+				format = NTV2_FORMAT_1080i_5994;
+			break;
+		case NTV2_FRAMERATE_2500:
+			if (smpte372Enabled)
+				format = NTV2_FORMAT_1080p_5000_B;
+			else if (is2Kx1080)
+				format = NTV2_FORMAT_1080psf_2K_2500;
+			else
+				format = NTV2_FORMAT_1080i_5000;
+			break;
+		case NTV2_FRAMERATE_2400:
+			if (is2Kx1080)
+				format = NTV2_FORMAT_1080psf_2K_2400;
+			else
+				format = NTV2_FORMAT_1080psf_2400;
+			break;
+		case NTV2_FRAMERATE_2398:
+			if (is2Kx1080)
+				format = NTV2_FORMAT_1080psf_2K_2398;
+			else
+				format = NTV2_FORMAT_1080psf_2398;
+			break;
+		default:
+			break;
+		}
+		break;
+
+	case NTV2_STANDARD_1080p:
+		switch (frameRate)
+		{
+		case NTV2_FRAMERATE_3000:
+			if (is2Kx1080)
+				format = NTV2_FORMAT_1080p_2K_3000;
+			else
+				format = NTV2_FORMAT_1080p_3000;
+			break;
+		case NTV2_FRAMERATE_2997:
+			if (is2Kx1080)
+				format = NTV2_FORMAT_1080p_2K_2997;
+			else
+				format = NTV2_FORMAT_1080p_2997;
+			break;
+		case NTV2_FRAMERATE_2500:
+			if (is2Kx1080)
+				format = NTV2_FORMAT_1080p_2K_2500;
+			else
+				format = NTV2_FORMAT_1080p_2500;
+			break;
+		case NTV2_FRAMERATE_2400:
+			if (is2Kx1080)
+				format = NTV2_FORMAT_1080p_2K_2400;
+			else
+				format = NTV2_FORMAT_1080p_2400;
+			break;
+		case NTV2_FRAMERATE_2398:
+			if (is2Kx1080)
+				format = NTV2_FORMAT_1080p_2K_2398;
+			else
+				format = NTV2_FORMAT_1080p_2398;
+			break;
+		case NTV2_FRAMERATE_4795:
+			if (is2Kx1080)
+				format = NTV2_FORMAT_1080p_2K_4795_A;
+			else
+				format = NTV2_FORMAT_UNKNOWN;
+			break;
+		case NTV2_FRAMERATE_4800:
+			if (is2Kx1080)
+				format = NTV2_FORMAT_1080p_2K_4800_A;
+			else
+				format = NTV2_FORMAT_UNKNOWN;
+			break;
+		case NTV2_FRAMERATE_5000:
+			if (is2Kx1080)
+				format = NTV2_FORMAT_1080p_2K_5000_A;
+			else
+				format = NTV2_FORMAT_1080p_5000_A;
+			break;
+		case NTV2_FRAMERATE_5994:
+			if (is2Kx1080)
+				format = NTV2_FORMAT_1080p_2K_5994_A;
+			else
+				format = NTV2_FORMAT_1080p_5994_A;
+			break;
+		case NTV2_FRAMERATE_6000:
+			if (is2Kx1080)
+				format = NTV2_FORMAT_1080p_2K_6000_A;
+			else
+				format = NTV2_FORMAT_1080p_6000_A;
+			break;
+		default:
+			break;
+		}
+		break;
+
+	case NTV2_STANDARD_720:
+		switch (frameRate)
+		{
+		case NTV2_FRAMERATE_6000:
+			format = NTV2_FORMAT_720p_6000;
+			break;
+		case NTV2_FRAMERATE_5994:
+			format = NTV2_FORMAT_720p_5994;
+			break;
+		case NTV2_FRAMERATE_5000:
+			format = NTV2_FORMAT_720p_5000;
+			break;
+		case NTV2_FRAMERATE_2398:
+			format = NTV2_FORMAT_720p_2398;
+			break;
+		default:
+			break;;
+		}
+		break;
+
+	case NTV2_STANDARD_525:
+		switch ( frameRate )
+		{
+		case NTV2_FRAMERATE_2997:
+			format = NTV2_FORMAT_525_5994;
+			break;
+		case NTV2_FRAMERATE_2400:
+			format = NTV2_FORMAT_525_2400;
+			break;
+		case NTV2_FRAMERATE_2398:
+			format = NTV2_FORMAT_525_2398;
+			break;
+		default:
+			break;
+		}
+		break;
+
+	case NTV2_STANDARD_625:
+		format = NTV2_FORMAT_625_5000;
+		break;
+
+	case NTV2_STANDARD_2K:
+		switch (frameRate)
+		{
+		case NTV2_FRAMERATE_1498:
+			format = NTV2_FORMAT_2K_1498;
+			break;
+		case NTV2_FRAMERATE_1500:
+			format = NTV2_FORMAT_2K_1500;
+			break;
+		case NTV2_FRAMERATE_2398:
+			format = NTV2_FORMAT_2K_2398;
+			break;
+		case NTV2_FRAMERATE_2400:
+			format = NTV2_FORMAT_2K_2400;
+			break;
+		default:
+			break;
+		}
+		break;
+	default: 
+		break;;
+	}
+
+	return format;
+}
+
+NTV2Standard GetNTV2StandardFromVideoFormat(NTV2VideoFormat videoFormat)
+{
+	NTV2Standard standard = NTV2_STANDARD_525;
+
+	switch(videoFormat)
+	{
+	case NTV2_FORMAT_1080i_5000:
+	case NTV2_FORMAT_1080i_5994:
+	case NTV2_FORMAT_1080i_6000:
+	case NTV2_FORMAT_1080psf_2398:
+	case NTV2_FORMAT_1080psf_2400:
+	case NTV2_FORMAT_1080psf_2K_2398:
+	case NTV2_FORMAT_1080psf_2K_2400:
+	case NTV2_FORMAT_1080psf_2K_2500:
+	case NTV2_FORMAT_1080psf_2500_2:
+	case NTV2_FORMAT_1080psf_2997_2:
+	case NTV2_FORMAT_1080psf_3000_2:
+	case NTV2_FORMAT_1080p_5000_B:
+	case NTV2_FORMAT_1080p_5994_B:
+	case NTV2_FORMAT_1080p_6000_B:
+	case NTV2_FORMAT_1080p_2K_5000_B:
+	case NTV2_FORMAT_1080p_2K_5994_B:
+	case NTV2_FORMAT_1080p_2K_6000_B:
+	case NTV2_FORMAT_4x1920x1080psf_2398:
+	case NTV2_FORMAT_4x1920x1080psf_2400:
+	case NTV2_FORMAT_4x1920x1080psf_2500:
+	case NTV2_FORMAT_4x1920x1080psf_2997:
+	case NTV2_FORMAT_4x1920x1080psf_3000:
+	case NTV2_FORMAT_4x2048x1080psf_2398:
+	case NTV2_FORMAT_4x2048x1080psf_2400:
+	case NTV2_FORMAT_4x2048x1080psf_2500:
+	case NTV2_FORMAT_4x2048x1080psf_2997:
+	case NTV2_FORMAT_4x2048x1080psf_3000:
+		standard = NTV2_STANDARD_1080;
+		break;
+	case NTV2_FORMAT_1080p_2500:
+	case NTV2_FORMAT_1080p_2997:
+	case NTV2_FORMAT_1080p_3000:
+	case NTV2_FORMAT_1080p_2398:
+	case NTV2_FORMAT_1080p_2400:
+	case NTV2_FORMAT_1080p_2K_2398:
+	case NTV2_FORMAT_1080p_2K_2400:
+	case NTV2_FORMAT_1080p_2K_2500:
+	case NTV2_FORMAT_1080p_2K_2997:
+	case NTV2_FORMAT_1080p_2K_3000:
+	case NTV2_FORMAT_1080p_2K_4795_A:
+	case NTV2_FORMAT_1080p_2K_4800_A:
+	case NTV2_FORMAT_1080p_2K_5000_A:
+	case NTV2_FORMAT_1080p_2K_5994_A:
+	case NTV2_FORMAT_1080p_2K_6000_A:
+	case NTV2_FORMAT_1080p_5000_A:
+	case NTV2_FORMAT_1080p_5994_A:
+	case NTV2_FORMAT_1080p_6000_A:
+	case NTV2_FORMAT_4x1920x1080p_2398:
+	case NTV2_FORMAT_4x1920x1080p_2400:
+	case NTV2_FORMAT_4x1920x1080p_2500:
+	case NTV2_FORMAT_4x1920x1080p_2997:
+	case NTV2_FORMAT_4x1920x1080p_3000:
+	case NTV2_FORMAT_4x2048x1080p_2398:
+	case NTV2_FORMAT_4x2048x1080p_2400:
+	case NTV2_FORMAT_4x2048x1080p_2500:
+	case NTV2_FORMAT_4x2048x1080p_2997:
+	case NTV2_FORMAT_4x2048x1080p_3000:
+	case NTV2_FORMAT_4x2048x1080p_4795:
+	case NTV2_FORMAT_4x2048x1080p_4800:
+	case NTV2_FORMAT_4x1920x1080p_5000:
+	case NTV2_FORMAT_4x1920x1080p_5994:
+	case NTV2_FORMAT_4x1920x1080p_6000:
+	case NTV2_FORMAT_4x2048x1080p_5000:
+	case NTV2_FORMAT_4x2048x1080p_5994:
+	case NTV2_FORMAT_4x2048x1080p_6000:
+	case NTV2_FORMAT_4x2048x1080p_11988:
+	case NTV2_FORMAT_4x2048x1080p_12000:
+		standard = NTV2_STANDARD_1080p;
+		break;
+	case NTV2_FORMAT_720p_2398:
+	case NTV2_FORMAT_720p_2500:
+	case NTV2_FORMAT_720p_5000:
+	case NTV2_FORMAT_720p_5994:
+	case NTV2_FORMAT_720p_6000:
+		standard = NTV2_STANDARD_720;
+		break;
+	case NTV2_FORMAT_525_2398:
+	case NTV2_FORMAT_525_2400:
+	case NTV2_FORMAT_525_5994:
+	case NTV2_FORMAT_525psf_2997:
+		standard = NTV2_STANDARD_525;
+		break;
+	case NTV2_FORMAT_625_5000:
+	case NTV2_FORMAT_625psf_2500:
+		standard = NTV2_STANDARD_625;
+		break;
+	case NTV2_FORMAT_2K_2500:
+	case NTV2_FORMAT_2K_2400:
+	case NTV2_FORMAT_2K_2398:
+	case NTV2_FORMAT_2K_1498:
+	case NTV2_FORMAT_2K_1500:
+		standard = NTV2_STANDARD_2K;
+		break;
+	default:
+		break;	// Unsupported
+	}
+
+	return standard;
+}
+
+NTV2FrameGeometry GetNTV2FrameGeometryFromVideoFormat(NTV2VideoFormat videoFormat)
+{
+	NTV2FrameGeometry geometry = NTV2_FG_INVALID;
+
+	switch(videoFormat)
+	{
+	case NTV2_FORMAT_525_2398:
+	case NTV2_FORMAT_525_2400:
+	case NTV2_FORMAT_525_5994:
+	case NTV2_FORMAT_525psf_2997:
+		geometry = NTV2_FG_720x486;
+		break;
+	case NTV2_FORMAT_625_5000:
+	case NTV2_FORMAT_625psf_2500:
+		geometry = NTV2_FG_720x576;
+		break;
+        
+	case NTV2_FORMAT_720p_2398:
+	case NTV2_FORMAT_720p_2500:
+	case NTV2_FORMAT_720p_5000:
+	case NTV2_FORMAT_720p_5994:
+	case NTV2_FORMAT_720p_6000:
+		geometry = NTV2_FG_1280x720;
+		break;
+
+	case NTV2_FORMAT_1080i_5000:
+	case NTV2_FORMAT_1080i_5994:
+	case NTV2_FORMAT_1080i_6000:
+	case NTV2_FORMAT_1080psf_2398:
+	case NTV2_FORMAT_1080psf_2400:
+	case NTV2_FORMAT_1080psf_2500_2:
+	case NTV2_FORMAT_1080psf_2997_2:
+	case NTV2_FORMAT_1080psf_3000_2:
+	case NTV2_FORMAT_1080p_2398:
+	case NTV2_FORMAT_1080p_2400:
+	case NTV2_FORMAT_1080p_2500:
+	case NTV2_FORMAT_1080p_2997:
+	case NTV2_FORMAT_1080p_3000:
+	case NTV2_FORMAT_1080p_5000_A:
+	case NTV2_FORMAT_1080p_5994_A:
+	case NTV2_FORMAT_1080p_6000_A:
+	case NTV2_FORMAT_1080p_5000_B:
+	case NTV2_FORMAT_1080p_5994_B:
+	case NTV2_FORMAT_1080p_6000_B:
+    case NTV2_FORMAT_4x1920x1080psf_2398:
+	case NTV2_FORMAT_4x1920x1080psf_2400:
+	case NTV2_FORMAT_4x1920x1080psf_2500:
+	case NTV2_FORMAT_4x1920x1080psf_2997:
+	case NTV2_FORMAT_4x1920x1080psf_3000:
+	case NTV2_FORMAT_4x2048x1080psf_2398:
+	case NTV2_FORMAT_4x2048x1080psf_2400:
+	case NTV2_FORMAT_4x2048x1080psf_2500:
+	case NTV2_FORMAT_4x2048x1080psf_2997:
+	case NTV2_FORMAT_4x2048x1080psf_3000:
+	case NTV2_FORMAT_4x1920x1080p_2398:
+	case NTV2_FORMAT_4x1920x1080p_2400:
+	case NTV2_FORMAT_4x1920x1080p_2500:
+	case NTV2_FORMAT_4x1920x1080p_2997:
+	case NTV2_FORMAT_4x1920x1080p_3000:
+	case NTV2_FORMAT_4x1920x1080p_5000:
+	case NTV2_FORMAT_4x1920x1080p_5994:
+	case NTV2_FORMAT_4x1920x1080p_6000:
+		geometry = NTV2_FG_1920x1080;
+		break;
+        
+	case NTV2_FORMAT_1080psf_2K_2398:
+	case NTV2_FORMAT_1080psf_2K_2400:
+	case NTV2_FORMAT_1080psf_2K_2500:
+	case NTV2_FORMAT_1080p_2K_2398:
+	case NTV2_FORMAT_1080p_2K_2400:
+	case NTV2_FORMAT_1080p_2K_2500:
+	case NTV2_FORMAT_1080p_2K_2997:
+	case NTV2_FORMAT_1080p_2K_3000:
+	case NTV2_FORMAT_1080p_2K_4795_A:
+	case NTV2_FORMAT_1080p_2K_4800_A:
+	case NTV2_FORMAT_1080p_2K_5000_A:
+	case NTV2_FORMAT_1080p_2K_5994_A:
+	case NTV2_FORMAT_1080p_2K_6000_A:
+    case NTV2_FORMAT_1080p_2K_5000_B:
+	case NTV2_FORMAT_1080p_2K_5994_B:
+	case NTV2_FORMAT_1080p_2K_6000_B:
+	case NTV2_FORMAT_4x2048x1080p_2398:
+	case NTV2_FORMAT_4x2048x1080p_2400:
+	case NTV2_FORMAT_4x2048x1080p_2500:
+	case NTV2_FORMAT_4x2048x1080p_2997:
+	case NTV2_FORMAT_4x2048x1080p_3000:
+	case NTV2_FORMAT_4x2048x1080p_4795:
+	case NTV2_FORMAT_4x2048x1080p_4800:
+	case NTV2_FORMAT_4x2048x1080p_5000:
+	case NTV2_FORMAT_4x2048x1080p_5994:
+	case NTV2_FORMAT_4x2048x1080p_6000:
+	case NTV2_FORMAT_4x2048x1080p_11988:
+	case NTV2_FORMAT_4x2048x1080p_12000:
+		geometry = NTV2_FG_2048x1080;
+		break;
+        
+	case NTV2_FORMAT_2K_2500:
+	case NTV2_FORMAT_2K_2400:
+	case NTV2_FORMAT_2K_2398:
+	case NTV2_FORMAT_2K_1498:
+	case NTV2_FORMAT_2K_1500:
+		geometry = NTV2_FG_2048x1556;
+		break;
+	default:
+		break;	// Unsupported
+	}
+
+	return geometry;
+}
+
+NTV2FrameRate GetNTV2FrameRateFromVideoFormat(NTV2VideoFormat videoFormat)
+{
+    NTV2FrameRate frameRate = NTV2_FRAMERATE_UNKNOWN;
+	switch ( videoFormat )
+	{
+	
+	case NTV2_FORMAT_2K_1498:
+		frameRate = NTV2_FRAMERATE_1498;
+		break;
+		
+	case NTV2_FORMAT_2K_1500:
+		frameRate = NTV2_FRAMERATE_1500;
+		break;
+	
+	case NTV2_FORMAT_525_2398:
+	case NTV2_FORMAT_720p_2398:
+	case NTV2_FORMAT_1080psf_2K_2398:
+	case NTV2_FORMAT_1080psf_2398:
+	case NTV2_FORMAT_1080p_2398:
+	case NTV2_FORMAT_1080p_2K_2398:
+	case NTV2_FORMAT_2K_2398:
+	case NTV2_FORMAT_4x1920x1080psf_2398:
+	case NTV2_FORMAT_4x1920x1080p_2398:
+	case NTV2_FORMAT_4x2048x1080psf_2398:
+	case NTV2_FORMAT_4x2048x1080p_2398:
+	case NTV2_FORMAT_4x2048x1080p_4795_B:
+	case NTV2_FORMAT_3840x2160p_2398:
+	case NTV2_FORMAT_3840x2160psf_2398:
+	case NTV2_FORMAT_4096x2160p_2398:
+	case NTV2_FORMAT_4096x2160psf_2398:
+	case NTV2_FORMAT_4096x2160p_4795_B:
+	case NTV2_FORMAT_4x3840x2160p_2398:
+	case NTV2_FORMAT_4x4096x2160p_2398:
+	case NTV2_FORMAT_4x4096x2160p_4795_B:
+		frameRate = NTV2_FRAMERATE_2398;
+		break;
+		
+	case NTV2_FORMAT_525_2400:
+	case NTV2_FORMAT_1080psf_2400:
+	case NTV2_FORMAT_1080psf_2K_2400:
+	case NTV2_FORMAT_1080p_2400:
+	case NTV2_FORMAT_1080p_2K_2400:
+	case NTV2_FORMAT_2K_2400:
+	case NTV2_FORMAT_4x1920x1080psf_2400:
+	case NTV2_FORMAT_4x1920x1080p_2400:
+	case NTV2_FORMAT_4x2048x1080psf_2400:
+	case NTV2_FORMAT_4x2048x1080p_2400:
+	case NTV2_FORMAT_4x2048x1080p_4800_B:
+	case NTV2_FORMAT_3840x2160p_2400:
+	case NTV2_FORMAT_3840x2160psf_2400:
+	case NTV2_FORMAT_4096x2160p_2400:
+	case NTV2_FORMAT_4096x2160psf_2400:
+	case NTV2_FORMAT_4096x2160p_4800_B:
+	case NTV2_FORMAT_4x3840x2160p_2400:
+	case NTV2_FORMAT_4x4096x2160p_2400:
+	case NTV2_FORMAT_4x4096x2160p_4800_B:
+		frameRate = NTV2_FRAMERATE_2400;
+		break;
+		
+	case NTV2_FORMAT_625_5000:
+	case NTV2_FORMAT_625psf_2500:
+	case NTV2_FORMAT_720p_2500:
+	case NTV2_FORMAT_1080i_5000:
+	case NTV2_FORMAT_1080psf_2500_2:
+	case NTV2_FORMAT_1080p_2500:
+	case NTV2_FORMAT_1080psf_2K_2500:
+	case NTV2_FORMAT_1080p_2K_2500:
+	case NTV2_FORMAT_2K_2500:
+	case NTV2_FORMAT_4x1920x1080psf_2500:
+	case NTV2_FORMAT_4x1920x1080p_2500:
+	case NTV2_FORMAT_4x1920x1080p_5000_B:
+	case NTV2_FORMAT_4x2048x1080psf_2500:
+	case NTV2_FORMAT_4x2048x1080p_2500:
+	case NTV2_FORMAT_4x2048x1080p_5000_B:
+	case NTV2_FORMAT_3840x2160psf_2500:
+	case NTV2_FORMAT_3840x2160p_2500:
+	case NTV2_FORMAT_3840x2160p_5000_B:
+	case NTV2_FORMAT_4096x2160psf_2500:
+	case NTV2_FORMAT_4096x2160p_2500:
+	case NTV2_FORMAT_4096x2160p_5000_B:
+	case NTV2_FORMAT_4x3840x2160p_2500:
+	case NTV2_FORMAT_4x3840x2160p_5000_B:
+	case NTV2_FORMAT_4x4096x2160p_2500:
+	case NTV2_FORMAT_4x4096x2160p_5000_B:
+		frameRate = NTV2_FRAMERATE_2500;
+		break;
+	
+	case NTV2_FORMAT_525_5994:
+	case NTV2_FORMAT_525psf_2997:
+	case NTV2_FORMAT_1080i_5994:
+	case NTV2_FORMAT_1080psf_2997_2:
+	case NTV2_FORMAT_1080p_2997:
+	case NTV2_FORMAT_1080p_2K_2997:
+	case NTV2_FORMAT_4x1920x1080p_2997:
+	case NTV2_FORMAT_4x1920x1080psf_2997:
+	case NTV2_FORMAT_4x1920x1080p_5994_B:
+	case NTV2_FORMAT_4x2048x1080p_2997:
+	case NTV2_FORMAT_4x2048x1080psf_2997:
+	case NTV2_FORMAT_4x2048x1080p_5994_B:
+	case NTV2_FORMAT_3840x2160p_2997:
+	case NTV2_FORMAT_3840x2160psf_2997:
+	case NTV2_FORMAT_3840x2160p_5994_B:
+	case NTV2_FORMAT_4096x2160p_2997:
+	case NTV2_FORMAT_4096x2160psf_2997:
+	case NTV2_FORMAT_4096x2160p_5994_B:
+	case NTV2_FORMAT_4x3840x2160p_2997:
+	case NTV2_FORMAT_4x3840x2160p_5994_B:
+	case NTV2_FORMAT_4x4096x2160p_2997:
+	case NTV2_FORMAT_4x4096x2160p_5994_B:
+		frameRate = NTV2_FRAMERATE_2997;
+		break;
+		
+	case NTV2_FORMAT_1080i_6000:
+	case NTV2_FORMAT_1080p_3000:
+	case NTV2_FORMAT_1080psf_3000_2:
+	case NTV2_FORMAT_1080p_2K_3000:
+	case NTV2_FORMAT_4x1920x1080p_3000:
+	case NTV2_FORMAT_4x1920x1080psf_3000:
+	case NTV2_FORMAT_4x1920x1080p_6000_B:
+	case NTV2_FORMAT_4x2048x1080p_3000:
+	case NTV2_FORMAT_4x2048x1080psf_3000:
+	case NTV2_FORMAT_4x2048x1080p_6000_B:
+	case NTV2_FORMAT_3840x2160p_3000:
+	case NTV2_FORMAT_3840x2160psf_3000:
+	case NTV2_FORMAT_3840x2160p_6000_B:
+	case NTV2_FORMAT_4096x2160p_3000:
+	case NTV2_FORMAT_4096x2160psf_3000:
+	case NTV2_FORMAT_4096x2160p_6000_B:
+	case NTV2_FORMAT_4x3840x2160p_3000:
+	case NTV2_FORMAT_4x3840x2160p_6000_B:
+	case NTV2_FORMAT_4x4096x2160p_3000:
+	case NTV2_FORMAT_4x4096x2160p_6000_B:
+		frameRate = NTV2_FRAMERATE_3000;
+		break;
+		
+	case NTV2_FORMAT_1080p_2K_4795_A:
+	case NTV2_FORMAT_4x2048x1080p_4795:
+	case NTV2_FORMAT_4096x2160p_4795:
+	case NTV2_FORMAT_4x4096x2160p_4795:
+	case NTV2_FORMAT_1080p_2K_4795_B:
+		frameRate = NTV2_FRAMERATE_4795;
+		break;
+		
+	case NTV2_FORMAT_1080p_2K_4800_A:
+	case NTV2_FORMAT_4x2048x1080p_4800:
+	case NTV2_FORMAT_4096x2160p_4800:
+	case NTV2_FORMAT_4x4096x2160p_4800:
+	case NTV2_FORMAT_1080p_2K_4800_B:
+		frameRate = NTV2_FRAMERATE_4800;
+		break;
+
+	case NTV2_FORMAT_720p_5000:
+	case NTV2_FORMAT_1080p_5000_A:
+	case NTV2_FORMAT_1080p_2K_5000_A:
+	case NTV2_FORMAT_4x1920x1080p_5000:
+	case NTV2_FORMAT_4x2048x1080p_5000:
+    case NTV2_FORMAT_3840x2160p_5000:
+    case NTV2_FORMAT_4096x2160p_5000:
+	case NTV2_FORMAT_4x3840x2160p_5000:
+	case NTV2_FORMAT_4x4096x2160p_5000:
+	case NTV2_FORMAT_1080p_5000_B:
+	case NTV2_FORMAT_1080p_2K_5000_B:
+		frameRate = NTV2_FRAMERATE_5000;
+		break;
+		
+	case NTV2_FORMAT_720p_5994:
+	case NTV2_FORMAT_1080p_5994_A:
+	case NTV2_FORMAT_1080p_2K_5994_A:
+	case NTV2_FORMAT_4x1920x1080p_5994:
+	case NTV2_FORMAT_4x2048x1080p_5994:
+    case NTV2_FORMAT_3840x2160p_5994:
+    case NTV2_FORMAT_4096x2160p_5994:
+	case NTV2_FORMAT_4x3840x2160p_5994:
+	case NTV2_FORMAT_4x4096x2160p_5994:
+	case NTV2_FORMAT_1080p_5994_B:
+	case NTV2_FORMAT_1080p_2K_5994_B:
+		frameRate = NTV2_FRAMERATE_5994;
+		break;
+
+	case NTV2_FORMAT_720p_6000:
+	case NTV2_FORMAT_1080p_6000_A:
+	case NTV2_FORMAT_1080p_2K_6000_A:
+	case NTV2_FORMAT_4x1920x1080p_6000:
+	case NTV2_FORMAT_4x2048x1080p_6000:
+    case NTV2_FORMAT_3840x2160p_6000:
+    case NTV2_FORMAT_4096x2160p_6000:
+	case NTV2_FORMAT_4x3840x2160p_6000:
+	case NTV2_FORMAT_4x4096x2160p_6000:
+	case NTV2_FORMAT_1080p_6000_B:
+	case NTV2_FORMAT_1080p_2K_6000_B:
+		frameRate = NTV2_FRAMERATE_6000;
+		break;
+
+	case NTV2_FORMAT_4x2048x1080p_11988:
+    case NTV2_FORMAT_4096x2160p_11988:
+		frameRate = NTV2_FRAMERATE_11988;
+		break;
+	case NTV2_FORMAT_4x2048x1080p_12000:
+    case NTV2_FORMAT_4096x2160p_12000:
+		frameRate = NTV2_FRAMERATE_12000;
+		break;
+
+#if defined (_DEBUG)
+	//	Debug builds warn about missing values
+	case NTV2_FORMAT_UNKNOWN:
+	case NTV2_FORMAT_END_HIGH_DEF_FORMATS:
+	case NTV2_FORMAT_END_STANDARD_DEF_FORMATS:
+	case NTV2_FORMAT_END_2K_DEF_FORMATS:
+	case NTV2_FORMAT_END_HIGH_DEF_FORMATS2:
+	case NTV2_FORMAT_END_4K_TSI_DEF_FORMATS:
+	case NTV2_FORMAT_END_4K_DEF_FORMATS2:
+	case NTV2_FORMAT_END_UHD2_DEF_FORMATS:
+	case NTV2_FORMAT_END_UHD2_FULL_DEF_FORMATS:
+		break;
+#else
+	default:
+		break;	// Unsupported -- fail
+#endif
+	}
+
+	return frameRate;
+
+}	//	GetNTV2FrameRateFromVideoFormat
+
+NTV2Channel GetOutXptChannel(NTV2OutputCrosspointID inXpt, bool multiFormatActive)
+{
+	switch (inXpt)
+	{
+	case NTV2_XptSDIIn1:
+	case NTV2_XptSDIIn1DS2:
+	case NTV2_XptDuallinkIn1:
+		return NTV2_CHANNEL1;
+	case NTV2_XptSDIIn2:
+	case NTV2_XptSDIIn2DS2:
+	case NTV2_XptDuallinkIn2:
+		return NTV2_CHANNEL2;
+	case NTV2_XptSDIIn3:
+	case NTV2_XptSDIIn3DS2:
+	case NTV2_XptDuallinkIn3:
+		return NTV2_CHANNEL3;
+	case NTV2_XptSDIIn4:
+	case NTV2_XptSDIIn4DS2:
+	case NTV2_XptDuallinkIn4:
+		return NTV2_CHANNEL4;
+	case NTV2_XptSDIIn5:
+	case NTV2_XptSDIIn5DS2:
+	case NTV2_XptDuallinkIn5:
+		return NTV2_CHANNEL5;
+	case NTV2_XptSDIIn6:
+	case NTV2_XptSDIIn6DS2:
+	case NTV2_XptDuallinkIn6:
+		return NTV2_CHANNEL6;
+	case NTV2_XptSDIIn7:
+	case NTV2_XptSDIIn7DS2:
+	case NTV2_XptDuallinkIn7:
+		return NTV2_CHANNEL7;
+	case NTV2_XptSDIIn8:
+	case NTV2_XptSDIIn8DS2:
+	case NTV2_XptDuallinkIn8:
+		return NTV2_CHANNEL8;
+	case NTV2_XptFrameBuffer1YUV:
+	case NTV2_XptFrameBuffer1RGB:
+	case NTV2_XptFrameBuffer1_DS2YUV:
+	case NTV2_XptFrameBuffer1_DS2RGB:
+		return NTV2_CHANNEL1;
+	case NTV2_XptFrameBuffer2YUV:
+	case NTV2_XptFrameBuffer2RGB:
+	case NTV2_XptFrameBuffer2_DS2YUV:
+	case NTV2_XptFrameBuffer2_DS2RGB:
+		return multiFormatActive ? NTV2_CHANNEL2 : NTV2_CHANNEL1;
+	case NTV2_XptFrameBuffer3YUV:
+	case NTV2_XptFrameBuffer3RGB:
+	case NTV2_XptFrameBuffer3_DS2YUV:
+	case NTV2_XptFrameBuffer3_DS2RGB:
+		return multiFormatActive ? NTV2_CHANNEL3 : NTV2_CHANNEL1;
+	case NTV2_XptFrameBuffer4YUV:
+	case NTV2_XptFrameBuffer4RGB:
+	case NTV2_XptFrameBuffer4_DS2YUV:
+	case NTV2_XptFrameBuffer4_DS2RGB:
+		return multiFormatActive ? NTV2_CHANNEL4 : NTV2_CHANNEL1;
+	case NTV2_XptFrameBuffer5YUV:
+	case NTV2_XptFrameBuffer5RGB:
+		return multiFormatActive ? NTV2_CHANNEL5 : NTV2_CHANNEL1;
+	case NTV2_XptFrameBuffer6YUV:
+	case NTV2_XptFrameBuffer6RGB:
+	case NTV2_XptFrameBuffer6_DS2YUV:
+	case NTV2_XptFrameBuffer6_DS2RGB:
+		return multiFormatActive ? NTV2_CHANNEL6 : NTV2_CHANNEL1;
+	case NTV2_XptFrameBuffer7YUV:
+	case NTV2_XptFrameBuffer7RGB:
+	case NTV2_XptFrameBuffer7_DS2YUV:
+	case NTV2_XptFrameBuffer7_DS2RGB:
+		return multiFormatActive ? NTV2_CHANNEL7 : NTV2_CHANNEL1;
+	case NTV2_XptFrameBuffer8YUV:
+	case NTV2_XptFrameBuffer8RGB:
+	case NTV2_XptFrameBuffer8_DS2YUV:
+	case NTV2_XptFrameBuffer8_DS2RGB:
+		return multiFormatActive ? NTV2_CHANNEL8 : NTV2_CHANNEL1;
+	default:
+		return NTV2_CHANNEL1;
+	}
+}
+
+NTV2Standard GetStandardFromScanGeometry(NTV2ScanGeometry scanGeometry, ULWord progressive)
+{
+	NTV2Standard standard = NTV2_NUM_STANDARDS;
+
+	switch(scanGeometry)
+	{
+	case NTV2_SG_525:
+		standard = NTV2_STANDARD_525;
+		break;
+	case NTV2_SG_625:
+		standard = NTV2_STANDARD_625;
+		break;
+	case NTV2_SG_750:
+		standard = NTV2_STANDARD_720;
+		break;
+	case NTV2_SG_1125:
+	case NTV2_SG_2Kx1080:
+		if(progressive)
+			standard = NTV2_STANDARD_1080p;
+		else
+			standard = NTV2_STANDARD_1080;
+		break;
+	case NTV2_SG_2Kx1556:
+		standard = NTV2_STANDARD_2K;
+		break;
+	default:
+		break;
+	}
+
+	return standard;
+}
+
+NTV2VideoFormat GetQuadSizedVideoFormat(NTV2VideoFormat videoFormat)
+{
+	NTV2VideoFormat quadSizedFormat;
+
+	switch (videoFormat)
+	{
+	case  NTV2_FORMAT_1080p_2398:		quadSizedFormat = NTV2_FORMAT_4x1920x1080p_2398; break;
+	case  NTV2_FORMAT_1080p_2400: 		quadSizedFormat = NTV2_FORMAT_4x1920x1080p_2400; break;
+	case  NTV2_FORMAT_1080p_2500: 		quadSizedFormat = NTV2_FORMAT_4x1920x1080p_2500; break;
+	case  NTV2_FORMAT_1080p_2997: 		quadSizedFormat = NTV2_FORMAT_4x1920x1080p_2997; break;
+	case  NTV2_FORMAT_1080p_3000: 		quadSizedFormat = NTV2_FORMAT_4x1920x1080p_3000; break;
+	case  NTV2_FORMAT_1080p_5000_A: 	quadSizedFormat = NTV2_FORMAT_4x1920x1080p_5000; break;
+	case  NTV2_FORMAT_1080p_5994_A: 	quadSizedFormat = NTV2_FORMAT_4x1920x1080p_5994; break;
+	case  NTV2_FORMAT_1080p_6000_A: 	quadSizedFormat = NTV2_FORMAT_4x1920x1080p_6000; break;
+	case  NTV2_FORMAT_1080p_5000_B:		quadSizedFormat = NTV2_FORMAT_4x1920x1080p_5000; break;
+	case  NTV2_FORMAT_1080p_5994_B:		quadSizedFormat = NTV2_FORMAT_4x1920x1080p_5994; break;
+	case  NTV2_FORMAT_1080p_6000_B:		quadSizedFormat = NTV2_FORMAT_4x1920x1080p_6000; break;
+	case  NTV2_FORMAT_1080p_2K_2398: 	quadSizedFormat = NTV2_FORMAT_4x2048x1080p_2398; break;
+	case  NTV2_FORMAT_1080p_2K_2400: 	quadSizedFormat = NTV2_FORMAT_4x2048x1080p_2400; break;
+	case  NTV2_FORMAT_1080p_2K_2500: 	quadSizedFormat = NTV2_FORMAT_4x2048x1080p_2500; break;
+	case  NTV2_FORMAT_1080p_2K_2997: 	quadSizedFormat = NTV2_FORMAT_4x2048x1080p_2997; break;
+	case  NTV2_FORMAT_1080p_2K_3000: 	quadSizedFormat = NTV2_FORMAT_4x2048x1080p_3000; break;
+	case  NTV2_FORMAT_1080p_2K_4795_A: 	quadSizedFormat = NTV2_FORMAT_4x2048x1080p_4795; break;
+	case  NTV2_FORMAT_1080p_2K_4800_A: 	quadSizedFormat = NTV2_FORMAT_4x2048x1080p_4800; break;
+	case  NTV2_FORMAT_1080p_2K_5000_A:	quadSizedFormat = NTV2_FORMAT_4x2048x1080p_5000; break;
+	case  NTV2_FORMAT_1080p_2K_5994_A:	quadSizedFormat = NTV2_FORMAT_4x2048x1080p_5994; break;
+	case  NTV2_FORMAT_1080p_2K_6000_A:	quadSizedFormat = NTV2_FORMAT_4x2048x1080p_6000; break;
+	case  NTV2_FORMAT_1080p_2K_4795_B: 	quadSizedFormat = NTV2_FORMAT_4x2048x1080p_4795; break;
+	case  NTV2_FORMAT_1080p_2K_4800_B: 	quadSizedFormat = NTV2_FORMAT_4x2048x1080p_4800; break;
+	case  NTV2_FORMAT_1080p_2K_5000_B:	quadSizedFormat = NTV2_FORMAT_4x2048x1080p_5000; break;
+	case  NTV2_FORMAT_1080p_2K_5994_B:	quadSizedFormat = NTV2_FORMAT_4x2048x1080p_5994; break;
+	case  NTV2_FORMAT_1080p_2K_6000_B:	quadSizedFormat = NTV2_FORMAT_4x2048x1080p_6000; break;
+	case  NTV2_FORMAT_1080psf_2398:		quadSizedFormat = NTV2_FORMAT_4x1920x1080psf_2398; break;
+	case  NTV2_FORMAT_1080psf_2400: 	quadSizedFormat = NTV2_FORMAT_4x1920x1080psf_2400; break;
+	case  NTV2_FORMAT_1080i_5000:	 	quadSizedFormat = NTV2_FORMAT_4x1920x1080psf_2500; break;
+	case  NTV2_FORMAT_1080i_5994:	 	quadSizedFormat = NTV2_FORMAT_4x1920x1080psf_2997; break;
+	case  NTV2_FORMAT_1080i_6000:	 	quadSizedFormat = NTV2_FORMAT_4x1920x1080psf_3000; break;
+	case  NTV2_FORMAT_1080psf_2K_2398:	quadSizedFormat = NTV2_FORMAT_4x2048x1080psf_2398; break;
+	case  NTV2_FORMAT_1080psf_2K_2400: 	quadSizedFormat = NTV2_FORMAT_4x2048x1080psf_2400; break;
+	case  NTV2_FORMAT_1080psf_2K_2500:	quadSizedFormat = NTV2_FORMAT_4x2048x1080psf_2500; break;
+	default:							quadSizedFormat = videoFormat; break;
+	}
+
+	return quadSizedFormat;
+}
+
+NTV2VideoFormat Get12GVideoFormat(NTV2VideoFormat videoFormat)
+{
+	NTV2VideoFormat quadQuadSizedFormat;
+
+	switch (videoFormat)
+	{
+	case NTV2_FORMAT_4x1920x1080p_2398: quadQuadSizedFormat = NTV2_FORMAT_3840x2160p_2398; break;
+	case NTV2_FORMAT_4x1920x1080p_2400: quadQuadSizedFormat = NTV2_FORMAT_3840x2160p_2400; break;
+	case NTV2_FORMAT_4x1920x1080p_2500: quadQuadSizedFormat = NTV2_FORMAT_3840x2160p_2500; break;
+	case NTV2_FORMAT_4x1920x1080p_2997: quadQuadSizedFormat = NTV2_FORMAT_3840x2160p_2997; break;
+	case NTV2_FORMAT_4x1920x1080p_3000: quadQuadSizedFormat = NTV2_FORMAT_3840x2160p_3000; break;
+	case NTV2_FORMAT_4x1920x1080p_5000: quadQuadSizedFormat = NTV2_FORMAT_3840x2160p_5000; break;
+	case NTV2_FORMAT_4x1920x1080p_5994: quadQuadSizedFormat = NTV2_FORMAT_3840x2160p_5994; break;
+	case NTV2_FORMAT_4x1920x1080p_6000: quadQuadSizedFormat = NTV2_FORMAT_3840x2160p_6000; break;
+	case NTV2_FORMAT_4x2048x1080p_2398: quadQuadSizedFormat = NTV2_FORMAT_4096x2160p_2398; break;
+	case NTV2_FORMAT_4x2048x1080p_2400: quadQuadSizedFormat = NTV2_FORMAT_4096x2160p_2400; break;
+	case NTV2_FORMAT_4x2048x1080p_2500: quadQuadSizedFormat = NTV2_FORMAT_4096x2160p_2500; break;
+	case NTV2_FORMAT_4x2048x1080p_2997: quadQuadSizedFormat = NTV2_FORMAT_4096x2160p_2997; break;
+	case NTV2_FORMAT_4x2048x1080p_3000: quadQuadSizedFormat = NTV2_FORMAT_4096x2160p_3000; break;
+	case NTV2_FORMAT_4x2048x1080p_4795: quadQuadSizedFormat = NTV2_FORMAT_4096x2160p_4795; break;
+	case NTV2_FORMAT_4x2048x1080p_4800: quadQuadSizedFormat = NTV2_FORMAT_4096x2160p_4800; break;
+	case NTV2_FORMAT_4x2048x1080p_5000: quadQuadSizedFormat = NTV2_FORMAT_4096x2160p_5000; break;
+	case NTV2_FORMAT_4x2048x1080p_5994: quadQuadSizedFormat = NTV2_FORMAT_4096x2160p_5994; break;
+	case NTV2_FORMAT_4x2048x1080p_6000: quadQuadSizedFormat = NTV2_FORMAT_4096x2160p_6000; break;
+	default:							quadQuadSizedFormat = videoFormat; break;
+	}
+
+	return quadQuadSizedFormat;
+}
+
+NTV2VideoFormat GetQuadQuadSizedVideoFormat(NTV2VideoFormat videoFormat)
+{
+	NTV2VideoFormat quadQuadSizedFormat;
+
+	switch (videoFormat)
+	{
+	case NTV2_FORMAT_4x1920x1080p_2398:
+	case NTV2_FORMAT_3840x2160p_2398: quadQuadSizedFormat = NTV2_FORMAT_4x3840x2160p_2398; break;
+	case NTV2_FORMAT_4x1920x1080p_2400: 
+	case NTV2_FORMAT_3840x2160p_2400: quadQuadSizedFormat = NTV2_FORMAT_4x3840x2160p_2400; break;
+	case NTV2_FORMAT_4x1920x1080p_2500: 
+	case NTV2_FORMAT_3840x2160p_2500: quadQuadSizedFormat = NTV2_FORMAT_4x3840x2160p_2500; break;
+	case NTV2_FORMAT_4x1920x1080p_2997: 
+	case NTV2_FORMAT_3840x2160p_2997: quadQuadSizedFormat = NTV2_FORMAT_4x3840x2160p_2997; break;
+	case NTV2_FORMAT_4x1920x1080p_3000: 
+	case NTV2_FORMAT_3840x2160p_3000: quadQuadSizedFormat = NTV2_FORMAT_4x3840x2160p_3000; break;
+	case NTV2_FORMAT_4x1920x1080p_5000: 
+	case NTV2_FORMAT_3840x2160p_5000: quadQuadSizedFormat = NTV2_FORMAT_4x3840x2160p_5000; break;
+	case NTV2_FORMAT_4x1920x1080p_5994: 
+	case NTV2_FORMAT_3840x2160p_5994: quadQuadSizedFormat = NTV2_FORMAT_4x3840x2160p_5994; break;
+	case NTV2_FORMAT_4x1920x1080p_6000: 
+	case NTV2_FORMAT_3840x2160p_6000: quadQuadSizedFormat = NTV2_FORMAT_4x3840x2160p_6000; break;
+	case NTV2_FORMAT_4x2048x1080p_2398: 
+	case NTV2_FORMAT_4096x2160p_2398: quadQuadSizedFormat = NTV2_FORMAT_4x4096x2160p_2398; break;
+	case NTV2_FORMAT_4x2048x1080p_2400: 
+	case NTV2_FORMAT_4096x2160p_2400:  quadQuadSizedFormat = NTV2_FORMAT_4x4096x2160p_2400; break;
+	case NTV2_FORMAT_4x2048x1080p_2500:  
+	case NTV2_FORMAT_4096x2160p_2500: quadQuadSizedFormat = NTV2_FORMAT_4x4096x2160p_2500; break;
+	case NTV2_FORMAT_4x2048x1080p_2997: 
+	case NTV2_FORMAT_4096x2160p_2997:  quadQuadSizedFormat = NTV2_FORMAT_4x4096x2160p_2997; break;
+	case NTV2_FORMAT_4x2048x1080p_3000:  
+	case NTV2_FORMAT_4096x2160p_3000: quadQuadSizedFormat = NTV2_FORMAT_4x4096x2160p_3000; break;
+	case NTV2_FORMAT_4x2048x1080p_4795:  
+	case NTV2_FORMAT_4096x2160p_4795: quadQuadSizedFormat = NTV2_FORMAT_4x4096x2160p_4795; break;
+	case NTV2_FORMAT_4x2048x1080p_4800:  
+	case NTV2_FORMAT_4096x2160p_4800: quadQuadSizedFormat = NTV2_FORMAT_4x4096x2160p_4800; break;
+	case NTV2_FORMAT_4x2048x1080p_5000:  
+	case NTV2_FORMAT_4096x2160p_5000: quadQuadSizedFormat = NTV2_FORMAT_4x4096x2160p_5000; break;
+	case NTV2_FORMAT_4x2048x1080p_5994:  
+	case NTV2_FORMAT_4096x2160p_5994: quadQuadSizedFormat = NTV2_FORMAT_4x4096x2160p_5994; break;
+	case NTV2_FORMAT_4x2048x1080p_6000:  
+	case NTV2_FORMAT_4096x2160p_6000: quadQuadSizedFormat = NTV2_FORMAT_4x4096x2160p_6000; break;
+	default:							quadQuadSizedFormat = videoFormat; break;
+	}
+
+	return quadQuadSizedFormat;
+}
+
+NTV2VideoFormat GetHDSizedVideoFormat(NTV2VideoFormat videoFormat)
+{
+	NTV2VideoFormat hdSizedFormat;
+
+	switch (videoFormat)
+	{
+	case NTV2_FORMAT_4x1920x1080p_2398:  hdSizedFormat = NTV2_FORMAT_1080p_2398; break;
+	case NTV2_FORMAT_4x1920x1080p_2400:  hdSizedFormat = NTV2_FORMAT_1080p_2400; break;
+	case NTV2_FORMAT_4x1920x1080p_2500:  hdSizedFormat = NTV2_FORMAT_1080p_2500; break;
+	case NTV2_FORMAT_4x1920x1080p_2997:  hdSizedFormat = NTV2_FORMAT_1080p_2997; break;
+	case NTV2_FORMAT_4x1920x1080p_3000:  hdSizedFormat = NTV2_FORMAT_1080p_3000; break;
+	case NTV2_FORMAT_4x1920x1080p_5000:  hdSizedFormat = NTV2_FORMAT_1080p_5000_A; break;
+	case NTV2_FORMAT_4x1920x1080p_5994:  hdSizedFormat = NTV2_FORMAT_1080p_5994_A; break;
+	case NTV2_FORMAT_4x1920x1080p_6000:  hdSizedFormat = NTV2_FORMAT_1080p_6000_A; break;
+	case NTV2_FORMAT_4x2048x1080p_2398:  hdSizedFormat = NTV2_FORMAT_1080p_2K_2398; break;
+	case NTV2_FORMAT_4x2048x1080p_2400:  hdSizedFormat = NTV2_FORMAT_1080p_2K_2400; break;
+	case NTV2_FORMAT_4x2048x1080p_2500:  hdSizedFormat = NTV2_FORMAT_1080p_2K_2500; break;
+	case NTV2_FORMAT_4x2048x1080p_2997:  hdSizedFormat = NTV2_FORMAT_1080p_2K_2997; break;
+	case NTV2_FORMAT_4x2048x1080p_3000:  hdSizedFormat = NTV2_FORMAT_1080p_2K_3000; break;
+	case NTV2_FORMAT_4x2048x1080p_4795:  hdSizedFormat = NTV2_FORMAT_1080p_2K_4795_A; break;
+	case NTV2_FORMAT_4x2048x1080p_4800:  hdSizedFormat = NTV2_FORMAT_1080p_2K_4800_A; break;
+	case NTV2_FORMAT_4x2048x1080p_5000:  hdSizedFormat = NTV2_FORMAT_1080p_2K_5000_A; break;
+	case NTV2_FORMAT_4x2048x1080p_5994:  hdSizedFormat = NTV2_FORMAT_1080p_2K_5994_A; break;
+	case NTV2_FORMAT_4x2048x1080p_6000:  hdSizedFormat = NTV2_FORMAT_1080p_2K_6000_A; break;
+	default:							hdSizedFormat = videoFormat; break;
+	}
+
+	return hdSizedFormat;
+}
+
+bool HDRIsChanging(HDRDriverValues inCurrentHDR, HDRDriverValues inNewHDR)
+{
+	if(	inCurrentHDR.greenPrimaryX != inNewHDR.greenPrimaryX ||
+		inCurrentHDR.greenPrimaryY != inNewHDR.greenPrimaryY ||
+		inCurrentHDR.bluePrimaryX != inNewHDR.bluePrimaryX ||
+		inCurrentHDR.bluePrimaryY != inNewHDR.bluePrimaryY ||
+		inCurrentHDR.redPrimaryX != inNewHDR.redPrimaryX ||
+		inCurrentHDR.redPrimaryY != inNewHDR.redPrimaryY ||
+		inCurrentHDR.whitePointX != inNewHDR.whitePointX ||
+		inCurrentHDR.whitePointY != inNewHDR.whitePointY ||
+		inCurrentHDR.maxMasteringLuminance != inNewHDR.maxMasteringLuminance ||
+		inCurrentHDR.minMasteringLuminance != inNewHDR.minMasteringLuminance ||
+		inCurrentHDR.maxContentLightLevel != inNewHDR.maxContentLightLevel ||
+		inCurrentHDR.maxFrameAverageLightLevel != inNewHDR.maxFrameAverageLightLevel ||
+		inCurrentHDR.electroOpticalTransferFunction != inNewHDR.electroOpticalTransferFunction ||
+		inCurrentHDR.staticMetadataDescriptorID != inNewHDR.staticMetadataDescriptorID ||
+		inCurrentHDR.luminance != inNewHDR.luminance )
+		return true;
+	else
+		return false;
+}
