@@ -1,0 +1,31 @@
+Source: ajv4l2
+Section: kernel
+Priority: optional
+Maintainer: Max Lapshin <max@flussonic.com>
+Build-Depends: debhelper-compat (= 13), dh-dkms
+Standards-Version: 4.6.2
+Homepage: https://github.com/flussonic/aja-v4l2
+Rules-Requires-Root: no
+
+Package: ajv4l2-dkms
+Architecture: all
+Depends: dkms, ${misc:Depends}
+Recommends: linux-headers-generic | linux-headers-amd64 | linux-headers-arm64
+Description: V4L2 driver for AJA SDI cards (DKMS source)
+ Every SDI input of an AJA card (KONA 5 and relatives) gets a multi-planar
+ V4L2 capture node whose buffers carry the picture, the frame's audio, the
+ ancillary data packets and per-frame metadata, by the SDI frame contract
+ shared with our other SDI drivers.
+ .
+ The module is built by DKMS for every installed kernel. The package keeps
+ ajantv2, the other driver of these cards, from autoloading, since
+ whichever loads first owns them.
+
+Package: ajv4l2-dev
+Architecture: all
+Depends: ${misc:Depends}
+Description: V4L2 driver for AJA SDI cards (client headers)
+ The headers a program needs to read the buffers of the ajv4l2 nodes:
+ sdi_av.h, the frame contract (pixel formats, the layout of the audio and
+ ancillary data planes and the per-frame metadata), and ajav.h, the
+ card's own block of the metadata.

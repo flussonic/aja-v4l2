@@ -1,0 +1,8 @@
+ajv4l2 (0.1.0) unstable; urgency=medium
+
+  * Capture nodes for every SDI input of a KONA 5: picture, audio,
+    ancillary data packets and per-frame metadata in one buffer by the
+    common SDI frame contract (sdi_av.h, version 4) with the AJAV vendor
+    block; input detection, media controller, hwmon, sysfs counters.
+
+ -- Max Lapshin <max@flussonic.com>  Mon, 21 Sep 2026 20:00:00 +0000
