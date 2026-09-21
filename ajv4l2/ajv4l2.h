@@ -96,6 +96,7 @@ struct ajv4l2_input_state {
 	bool vpid_a_valid, vpid_b_valid;
 	u32 crc_errors;		/* the card's cumulative counter, link A + B */
 	u32 status;		/* raw kRegRXSDInStatus */
+	u32 link_status;	/* the input's byte of the 3G/6G/12G status register */
 };
 
 struct ajv4l2_device;
