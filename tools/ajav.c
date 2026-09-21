@@ -319,9 +319,7 @@ static int cmd_cap(int argc, char **argv)
 			if (m->vendor_magic == AJAV_VENDOR_MAGIC && m->vendor_bytes >= sizeof(struct ajav_meta)) {
 				const struct ajav_meta *v = (const void *)(m + 1);
 
-				printf("\n  aja rp188 %08x %08x %08x rx 0x%08x vpid %08x/%08x dropped %u",
-				       v->rp188_dbb, v->rp188_low, v->rp188_high, v->rx_status,
-				       v->vpid_a, v->vpid_b, v->frames_dropped);
+				printf("\n  aja rx 0x%08x link 0x%02x", v->rx_status, v->rx_link_status);
 			}
 		}
 		printf("\n");

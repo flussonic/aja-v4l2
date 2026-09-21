@@ -202,6 +202,48 @@ static u32 anc_parse(const u8 *in, u32 in_bytes, u8 *out, u32 out_bytes, bool fi
 	return op;
 }
 
+static bool anc_has_did(const u8 *anc, u32 bytes, u8 did)
+{
+	u32 off = 0;
+
+	while (off + sizeof(struct sdi_anc_packet) <= bytes) {
+		const struct sdi_anc_packet *pkt = (const void *)(anc + off);
+		u32 len = SDI_ANC_PACKET_BYTES(pkt->data_count);
+
+		if (off + len > bytes)
+			break;
+		if (pkt->did == did)
+			return true;
+		off += len;
+	}
+	return false;
+}
+
+/*
+ * The payload identifier (SMPTE ST 352) as the packet the contract places
+ * it in: DID 0x41 SDID 0x01, four words, on the line the standard puts it.
+ * Written only when the extractor's stream did not carry one, from the
+ * word the receiver decoded.
+ */
+static u32 anc_put_vpid(u8 *anc, u32 bytes, u32 room, u32 vpid, u32 total_lines)
+{
+	struct sdi_anc_packet *pkt;
+	u32 len = SDI_ANC_PACKET_BYTES(4);
+	unsigned int i;
+
+	if (bytes + len > room)
+		return bytes;
+	pkt = (struct sdi_anc_packet *)(anc + bytes);
+	memset(pkt, 0, len);
+	pkt->line = total_lines == 525 ? 13 : total_lines == 625 ? 9 : 10;
+	pkt->did = 0x41;
+	pkt->sdid = 0x01;
+	pkt->data_count = 4;
+	for (i = 0; i < 4; i++)
+		pkt->udw[i] = udw_word(vpid >> (24 - 8 * i));
+	return bytes + len;
+}
+
 static struct ajv4l2_buffer *next_buffer(struct ajv4l2_port *port)
 {
 	struct ajv4l2_buffer *buf = NULL;
@@ -290,13 +332,8 @@ static void fill_meta(struct ajv4l2_port *port, struct vb2_buffer *vb,
 	m->vendor_magic = AJAV_VENDOR_MAGIC;
 	m->vendor_version = AJAV_VENDOR_VERSION;
 	v = (struct ajav_meta *)(m + 1);
-	v->rp188_dbb = ts->acFrameStamp.acRP188.fDBB;
-	v->rp188_low = ts->acFrameStamp.acRP188.fLo;
-	v->rp188_high = ts->acFrameStamp.acRP188.fHi;
 	v->rx_status = st->status;
-	v->vpid_a = st->vpid_a;
-	v->vpid_b = st->vpid_b;
-	v->frames_dropped = ts->acFramesDropped;
+	v->rx_link_status = st->link_status;
 	vb2_set_plane_payload(vb, SDI_PLANE_META, AJAV_META_BYTES);
 }
 
@@ -362,6 +399,9 @@ static void finish_buffer(struct ajv4l2_port *port, struct ajv4l2_buffer *buf,
 		anc_bytes += anc_parse(port->anc[1].buf,
 				       min_t(u32, ts->acAncField2TransferSize, AJV4L2_ANC_FIELD_BYTES),
 				       anc + anc_bytes, room - anc_bytes, true);
+		if (st.vpid_a_valid && !anc_has_did(anc, anc_bytes, 0x41))
+			anc_bytes = anc_put_vpid(anc, anc_bytes, room, st.vpid_a,
+						 port->mode->total_lines);
 	}
 	vb2_set_plane_payload(vb, SDI_PLANE_ANC, anc_bytes);
 	vb2_set_plane_payload(vb, SDI_PLANE_VBI, 0);

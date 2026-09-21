@@ -13,16 +13,17 @@
 #define AJAV_VENDOR_MAGIC	v4l2_fourcc('A', 'J', 'A', 'V')
 #define AJAV_VENDOR_VERSION	1
 
-/* Vendor block of an AJA card, right after the common part of sdi_meta. */
+/*
+ * Vendor block of an AJA card, right after the common part of sdi_meta:
+ * the raw receiver status words of the input at the time of the frame,
+ * for diagnostics. Everything a client needs regardless of the card --
+ * the timecode, the payload identifier, lost frames -- is where the
+ * contract puts it (the ANC plane, v4l2_buffer.sequence), not here.
+ */
 struct ajav_meta {
-	__u32 rp188_dbb;	/* SMPTE RP 188 timecode of the frame as the input received it: DBB word */
-	__u32 rp188_low;	/* ... low word (frames, seconds) */
-	__u32 rp188_high;	/* ... high word (minutes, hours); all three 0xffffffff when none */
-	__u32 rx_status;	/* raw receiver status register at the time of the frame */
-	__u32 vpid_a;		/* payload identifier of link A as received, 0 when invalid */
-	__u32 vpid_b;		/* ... link B */
-	__u32 frames_dropped;	/* frames the card ring dropped since STREAMON, cumulative */
-	__u32 reserved[5];
+	__u32 rx_status;	/* receiver status register: lock, unlock count, VPID valid, TRS error */
+	__u32 rx_link_status;	/* 3G/6G/12G status bits of the input: rate, level B, VPID link A/B valid */
+	__u32 reserved[6];
 };
 
 #define AJAV_META_BYTES		(SDI_META_SIZE + sizeof(struct ajav_meta))

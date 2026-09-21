@@ -5,9 +5,11 @@ input of a card gets a multi-planar capture node (`/dev/videoN`) whose
 buffers carry a whole frame: the picture, the frame's audio, the
 ancillary data packets and per-frame metadata, laid out by the SDI frame
 contract that every SDI driver of ours follows -- `include/sdi_av.h`,
-the same file byte for byte in each of them and in the client. What the
-card adds of its own (the RP 188 timecode, the receiver status, the
-payload identifiers) is a vendor block declared in `include/ajav.h`.
+the same file byte for byte in each of them and in the client. The
+vendor block declared in `include/ajav.h` carries only what no other
+card has, the raw receiver status words, for diagnostics; the timecode
+and the payload identifier are ancillary packets in plane 2 like on
+every card, lost frames are gaps in `v4l2_buffer.sequence`.
 
 Underneath is the kernel driver of AJA's open `libajantv2`
 (https://github.com/aja-video/libajantv2, MIT): board bring-up, register
@@ -78,7 +80,7 @@ Planes of every buffer (`include/sdi_av.h` has the details):
 |---|---|
 | 0 | picture: `SDUY` (UYVY) or `SD10` (v210) |
 | 1 | 16 channels x 32-bit samples, 48 kHz, interleaved, 24-bit sample in the top bits |
-| 2 | `struct sdi_anc_packet` back to back: every non-audio packet the card's extractor found in the blanking, VANC and HANC |
+| 2 | `struct sdi_anc_packet` back to back: every non-audio packet the card's extractor found in the blanking, VANC and HANC; the payload identifier (DID 0x41) is put there from the receiver's register when the extractor did not deliver it |
 | 3 | `struct sdi_meta` (magic `SDI0`, version 4, 128 bytes) followed by `struct ajav_meta` (`AJAV` in the vendor tail) |
 | 4 | SD only: the luma of the vertical blanking lines; empty until the SD path is done |
 

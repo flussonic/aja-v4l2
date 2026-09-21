@@ -108,6 +108,7 @@ void ajv4l2_input_read(struct ajv4l2_port *port, struct ajv4l2_input_state *st)
 	st->crc_errors = (crc & 0xffff) + (crc >> 16);
 
 	s3g = ntv2ReadRegister(ctx, in3g_reg[ch]) >> in3g_shift(ch);
+	st->link_status = s3g & 0xff;
 	st->rate_3g = !!(s3g & kRegMaskSDIIn3GbpsMode);
 	st->level_b = !!(s3g & kRegMaskSDIIn3GbpsSMPTELevelBMode);
 	st->rate_6g = !!(s3g & kRegMaskSDIIn16GbpsMode);
