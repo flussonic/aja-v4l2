@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * The board temperature: the FPGA's system monitor die sensor, the one the
- * driver core's thermostat reads, as a hwmon device named after the module.
- * The 10-bit reading converts by the UltraScale formula.
+ * driver core's thermostat reads on the boards that have a software fan
+ * control, as a hwmon device named after the module. The 10-bit reading
+ * converts by the UltraScale formula; a board without the sensor gives a
+ * reading outside any real temperature and gets no hwmon device.
  */
 #include <linux/hwmon.h>
 #include "ajv4l2.h"
@@ -75,8 +77,10 @@ static const struct hwmon_chip_info ajv4l2_hwmon_chip = {
 int ajv4l2_hwmon_register(struct ajv4l2_device *dev)
 {
 	struct device *hw;
+	int t = die_temp_millicelsius(dev);
 
-	if (!NTV2DeviceCanThermostat(dev->device_id))
+	/* a board without the system monitor reads all zeros or all ones */
+	if (t < 0 || t > 125000)
 		return 0;
 	hw = hwmon_device_register_with_info(&dev->pdev->dev, AJV4L2_DRIVER_NAME, dev,
 					     &ajv4l2_hwmon_chip, NULL);
