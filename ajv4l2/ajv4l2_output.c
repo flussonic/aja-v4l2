@@ -41,11 +41,9 @@ static u16 field2_first_line(const struct ajv4l2_mode *m)
 	}
 }
 
-/* Packets the hardware places itself: the payload identifier and the audio groups. */
-static bool packet_reserved(u8 did, u8 sdid)
+/* The audio groups: the embedder places them itself. */
+static bool packet_is_audio(u8 did)
 {
-	if (did == 0x41 && sdid == 0x01)
-		return true;
 	return (did >= 0xe0 && did <= 0xe7) || (did >= 0xa0 && did <= 0xa7);
 }
 
@@ -54,27 +52,39 @@ static bool packet_reserved(u8 did, u8 sdid)
  * location bytes, DID, SDID, DC, the low byte of every word and the 8-bit
  * sum of DID, SDID, DC and the payload. Field 2 packets go to the second
  * buffer. Returns the bytes of each field's stream, rounded up to the
- * DMA's word, in bytes[]; the count of what was left out in dropped.
+ * DMA's word, in bytes[]; the count of what was left out in dropped; a
+ * payload identifier the plane carries, as the word the output register
+ * takes, in vpid (0 when there is none): the transmitter inserts that
+ * one itself.
  */
 static void anc_build(struct ajv4l2_port *port, const u8 *in, u32 in_bytes, u32 bytes[2],
-		      u32 *dropped)
+		      u32 *dropped, u32 *vpid)
 {
 	u16 f2 = field2_first_line(port->mode);
 	u32 ip = 0, op[2] = { 0, 0 };
 	unsigned int f;
 
 	*dropped = 0;
+	*vpid = 0;
 	while (ip + sizeof(struct sdi_anc_packet) <= in_bytes) {
 		const struct sdi_anc_packet *pkt = (const void *)(in + ip);
 		u32 dc = pkt->data_count, len = SDI_ANC_PACKET_BYTES(dc), i, sum;
 		u8 *out;
 
+		/* an all-zero header ends the list */
+		if (!pkt->line && !pkt->hoffset && !pkt->did && !pkt->sdid && !dc && !pkt->flags)
+			break;
 		if (ip + len > in_bytes)
 			break;
 		ip += len;
+		if (pkt->did == 0x41 && pkt->sdid == 0x01 && dc == 4) {
+			*vpid = (pkt->udw[0] & 0xff) | (pkt->udw[1] & 0xff) << 8 |
+				(pkt->udw[2] & 0xff) << 16 | (pkt->udw[3] & 0xff) << 24;
+			continue;
+		}
 		f = f2 && pkt->line >= f2 ? 1 : 0;
 		if (dc > 255 || pkt->line == 0 || pkt->line > port->mode->total_lines ||
-		    packet_reserved(pkt->did, pkt->sdid) ||
+		    packet_is_audio(pkt->did) ||
 		    op[f] + 7 + dc > AJV4L2_ANC_FIELD_BYTES) {
 			(*dropped)++;
 			continue;
@@ -137,15 +147,17 @@ static int transfer_frame(struct ajv4l2_port *port, struct ajv4l2_buffer *buf,
 	struct ajv4l2_device *dev = port->dev;
 	struct vb2_buffer *vb = &buf->vb.vb2_buf;
 	struct v4l2_pix_format_mplane pix;
-	u32 audio_bytes, anc_bytes[2], dropped;
+	u32 audio_bytes, anc_bytes[2], dropped, vpid;
 	int ret;
 
 	ajv4l2_video_geometry(port, port->pixfmt, port->mode, &pix);
 	audio_bytes = vb2_get_plane_payload(vb, SDI_PLANE_AUDIO);
 	audio_bytes -= audio_bytes % SDI_AUDIO_FRAME_BYTES;
 	anc_build(port, vb2_plane_vaddr(vb, SDI_PLANE_ANC), vb2_get_plane_payload(vb, SDI_PLANE_ANC),
-		  anc_bytes, &dropped);
+		  anc_bytes, &dropped, &vpid);
 	port->anc_dropped += dropped;
+	if (vpid)
+		ajv4l2_hw_set_vpid(port, vpid);
 	dma_sync_single_for_device(&dev->pdev->dev, port->anc[0].dma, AJV4L2_ANC_FIELD_BYTES, DMA_TO_DEVICE);
 	dma_sync_single_for_device(&dev->pdev->dev, port->anc[1].dma, AJV4L2_ANC_FIELD_BYTES, DMA_TO_DEVICE);
 
