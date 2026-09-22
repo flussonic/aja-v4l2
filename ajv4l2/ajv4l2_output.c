@@ -466,10 +466,19 @@ void ajv4l2_output_kick(struct ajv4l2_port *port)
 /* What the output is doing, for sysfs and LOG_STATUS. */
 const char *ajv4l2_output_describe(const struct ajv4l2_port *port, char *buf, size_t len)
 {
-	if (!port->streaming)
+	Ntv2SystemContext *ctx = port->dev->ctx;
+	bool g3 = false, g3b = false, g6 = false, g12 = false;
+
+	if (!port->streaming) {
 		snprintf(buf, len, "idle");
-	else
-		snprintf(buf, len, "%s on air, %s", port->mode->name,
-			 ajv4l2_hw_reference_present(port->dev) && port->reference ? "reference" : "free-running");
+		return buf;
+	}
+	GetSDIOut3GEnable(ctx, port->channel, &g3);
+	GetSDIOut3GbEnable(ctx, port->channel, &g3b);
+	GetSDIOut6GEnable(ctx, port->channel, &g6);
+	GetSDIOut12GEnable(ctx, port->channel, &g12);
+	snprintf(buf, len, "%s on air, %s, %s", port->mode->name,
+		 g12 ? "12G" : g6 ? "6G" : g3 ? (g3b ? "3G level B" : "3G level A") : "1.5G",
+		 ajv4l2_hw_reference_present(port->dev) && port->reference ? "reference" : "free-running");
 	return buf;
 }
