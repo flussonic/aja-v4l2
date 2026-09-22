@@ -19,7 +19,8 @@
  *     -g N        leave the queue empty for half a second every N frames
  *   Without -i the frames are colour bars with a moving marker, a 1 kHz
  *   and a 2 kHz tone on channels 1 and 2, OP-47 with the frame number,
- *   SCTE-104 and an RP188 packet; the payload identifier the card adds.
+ *   SCTE-104 and an RP188 timecode counting the frames; the payload
+ *   identifier the card adds.
  */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -433,8 +434,19 @@ static void make_frame(struct plane_mem mem[SDI_NUM_PLANES], size_t used[SDI_NUM
 	unsigned int f2 = height == 1080 ? 563 : height == 576 ? 313 : height == 486 ? 263 : 0;
 	uint8_t op47[10] = { 0x51, 0x15, 0x00, 0x11 };
 	static const uint8_t scte104[12] = { 0x08, 0x02, 0xff, 0x01, 0x00, 0x00, 0x00, 0x01 };
-	static const uint8_t rp188[16];
+	uint8_t rp188[16] = { 0 };
+	unsigned int fps = height == 1080 && !interlaced ? 50 : 25, tc = frame, digit;
 	size_t off = 0;
+
+	/* ST 12-2: the timecode digits in the upper nibbles of every other word, frames first */
+	digit = tc % fps; tc /= fps;
+	rp188[0] = (digit % 10) << 4; rp188[2] = (digit / 10) << 4;
+	digit = tc % 60; tc /= 60;
+	rp188[4] = (digit % 10) << 4; rp188[6] = (digit / 10) << 4;
+	digit = tc % 60; tc /= 60;
+	rp188[8] = (digit % 10) << 4; rp188[10] = (digit / 10) << 4;
+	digit = tc % 24;
+	rp188[12] = (digit % 10) << 4; rp188[14] = (digit / 10) << 4;
 
 	memset(video, 0, (size_t)stride * height);
 	for (i = 0; i < height; i++)

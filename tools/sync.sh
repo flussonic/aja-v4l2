@@ -8,4 +8,4 @@ cd "$(dirname "$0")/.."
 rsync -a --delete --exclude .git --exclude build --exclude '*.o' --exclude '*.cmd' \
       --exclude '*.ko' --exclude '*.mod' --exclude '*.mod.c' --exclude tools/ajav \
       ./ "$HOST:$DIR/"
-ssh "$HOST" "make -C $DIR -j8 2>&1 | tail -20"
+ssh "$HOST" "make -C $DIR -j8 2>&1 | tail -20; make -C $DIR/tools 2>&1 | grep -v '^make'"

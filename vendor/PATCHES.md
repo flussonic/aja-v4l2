@@ -42,3 +42,11 @@ vendor's own module without it.
   `dmaPageUnlock` neither unmaps it nor releases pages. `dmaTransfer` finds
   it by the cookie like any locked buffer and never calls
   `get_user_pages`, which the capture thread, having no mm, could not.
+
+## Kernel-side timecode
+
+- `driver/linux/ntv2driverautocirculate.c` -- a playout transfer whose
+  `acOutputTimeCodes.fKernelHandle` is set takes the timecode array from
+  that kernel address instead of `copy_from_user`, which rejects a kernel
+  pointer; the array reaches the RP188 registers at the frame change as
+  before.

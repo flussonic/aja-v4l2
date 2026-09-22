@@ -10,6 +10,7 @@
  * behind it; the level of a 3G output is its converter bit.
  */
 #include "ajv4l2_hw.h"
+#include "ntv2rp188.h"
 
 static const u32 global_control_reg[8] = {
 	kRegGlobalControl, kRegGlobalControlCh2, kRegGlobalControlCh3, kRegGlobalControlCh4,
@@ -256,6 +257,8 @@ int ajv4l2_hw_setup_output(struct ajv4l2_port *port)
 	ajv4l2_hw_set_reference(port);
 	set_free_run_rate(port);
 	ajv4l2_hw_set_vpid(port, 0);
+	port->timecode_output = true;
+	ajv4l2_hw_set_timecode_output(port, false);
 	AvInterruptControl(dev->device_number, ajv4l2_hw_output_event(ch), 1);
 	return 0;
 }
@@ -279,6 +282,22 @@ void ajv4l2_hw_set_vpid(struct ajv4l2_port *port, u32 vpid)
 		SetVideoOutputStandard(dev->ctx, port->channel);
 		SetVPIDOutput(dev->ctx, port->channel);
 	}
+}
+
+/*
+ * The card's own ATC inserter: on while frames carry a timecode packet,
+ * off otherwise, so that no empty timecode goes out. The DBB word of the
+ * packet is used as given rather than the core's default.
+ */
+void ajv4l2_hw_set_timecode_output(struct ajv4l2_port *port, bool on)
+{
+	struct ajv4l2_device *dev = port->dev;
+
+	if (port->timecode_output == on)
+		return;
+	port->timecode_output = on;
+	WriteRegister(dev->device_number, kVRegUserDefinedDBB, 1, NO_MASK, NO_SHIFT);
+	SetRP188Mode(dev->ctx, port->channel, on ? NTV2_RP188_OUTPUT : NTV2_RP188_INPUT);
 }
 
 /* The output vertical interrupt of a channel: the enum is not contiguous. */

@@ -13,6 +13,7 @@
  */
 #include <linux/dma-mapping.h>
 #include <linux/ktime.h>
+#include <linux/sort.h>
 #include "ajv4l2_output.h"
 #include "ajv4l2_capture.h"
 #include "ajv4l2_hw.h"
@@ -41,7 +42,12 @@ static u16 field2_first_line(const struct ajv4l2_mode *m)
 	}
 }
 
-/* The audio groups: the embedder places them itself. */
+/*
+ * HANC packets are not placed: the core sets the inserter up for VANC
+ * alone, and with its HANC side switched on the VANC packets of a frame
+ * wander into the horizontal blanking every few frames. The audio groups
+ * the embedder places itself, the timecode the card's own inserter.
+ */
 static bool packet_is_audio(u8 did)
 {
 	return (did >= 0xe0 && did <= 0xe7) || (did >= 0xa0 && did <= 0xa7);
@@ -57,19 +63,54 @@ static bool packet_is_audio(u8 did)
  * takes, in vpid (0 when there is none): the transmitter inserts that
  * one itself.
  */
+#define AJV4L2_ANC_MAX_PACKETS	256
+
+/* The order the inserter walks its stream in: by line, the C stream before the Y one. */
+static int packet_order(const void *a, const void *b)
+{
+	const struct sdi_anc_packet *pa = *(const struct sdi_anc_packet *const *)a;
+	const struct sdi_anc_packet *pb = *(const struct sdi_anc_packet *const *)b;
+
+	if (pa->line != pb->line)
+		return pa->line < pb->line ? -1 : 1;
+	return (pb->flags & SDI_ANC_F_CHROMA) - (pa->flags & SDI_ANC_F_CHROMA);
+}
+
+/*
+ * An ancillary timecode packet (SMPTE ST 12-2, DID 0x60 SDID 0x60) as
+ * the card's own inserter takes it: the 64 timecode bits are the upper
+ * nibbles of the sixteen words, low word first, the distributed binary
+ * bits of the first eight words make DBB1, of the last eight DBB2.
+ */
+static void atc_from_packet(const struct sdi_anc_packet *pkt, NTV2_RP188 *tc)
+{
+	unsigned int i;
+
+	tc->fDBB = 0;
+	tc->fLo = 0;
+	tc->fHi = 0;
+	for (i = 0; i < 8; i++) {
+		tc->fLo |= ((pkt->udw[i] >> 4) & 0xf) << (4 * i);
+		tc->fHi |= ((pkt->udw[8 + i] >> 4) & 0xf) << (4 * i);
+		tc->fDBB |= ((pkt->udw[i] >> 3) & 1) << i;
+		tc->fDBB |= ((pkt->udw[8 + i] >> 3) & 1) << (8 + i);
+	}
+}
+
 static void anc_build(struct ajv4l2_port *port, const u8 *in, u32 in_bytes, u32 bytes[2],
-		      u32 *dropped, u32 *vpid)
+		      u32 *dropped, u32 *vpid, NTV2_RP188 *atc)
 {
 	u16 f2 = field2_first_line(port->mode);
 	u32 ip = 0, op[2] = { 0, 0 };
-	unsigned int f;
+	const struct sdi_anc_packet **list = port->anc_list;
+	unsigned int f, n = 0, k;
 
 	*dropped = 0;
 	*vpid = 0;
+	atc->fDBB = atc->fLo = atc->fHi = 0xffffffff;	/* none */
 	while (ip + sizeof(struct sdi_anc_packet) <= in_bytes) {
 		const struct sdi_anc_packet *pkt = (const void *)(in + ip);
-		u32 dc = pkt->data_count, len = SDI_ANC_PACKET_BYTES(dc), i, sum;
-		u8 *out;
+		u32 dc = pkt->data_count, len = SDI_ANC_PACKET_BYTES(dc);
 
 		/* an all-zero header ends the list */
 		if (!pkt->line && !pkt->hoffset && !pkt->did && !pkt->sdid && !dc && !pkt->flags)
@@ -82,10 +123,31 @@ static void anc_build(struct ajv4l2_port *port, const u8 *in, u32 in_bytes, u32 
 				(pkt->udw[2] & 0xff) << 16 | (pkt->udw[3] & 0xff) << 24;
 			continue;
 		}
-		f = f2 && pkt->line >= f2 ? 1 : 0;
+		/*
+		 * A timecode packet goes to the card's own inserter, which places
+		 * it in both fields itself: the first one of the frame is taken.
+		 */
+		if (pkt->did == 0x60 && pkt->sdid == 0x60 && dc == 16) {
+			if (atc->fDBB == 0xffffffff)
+				atc_from_packet(pkt, atc);
+			continue;
+		}
 		if (dc > 255 || pkt->line == 0 || pkt->line > port->mode->total_lines ||
-		    packet_is_audio(pkt->did) ||
-		    op[f] + 7 + dc > AJV4L2_ANC_FIELD_BYTES) {
+		    packet_is_audio(pkt->did) || n >= AJV4L2_ANC_MAX_PACKETS ||
+		    pkt->flags & SDI_ANC_F_HANC) {
+			(*dropped)++;
+			continue;
+		}
+		list[n++] = pkt;
+	}
+	sort(list, n, sizeof(*list), packet_order, NULL);
+	for (k = 0; k < n; k++) {
+		const struct sdi_anc_packet *pkt = list[k];
+		u32 dc = pkt->data_count, i, sum;
+		u8 *out;
+
+		f = f2 && pkt->line >= f2 ? 1 : 0;
+		if (op[f] + 7 + dc > AJV4L2_ANC_FIELD_BYTES) {
 			(*dropped)++;
 			continue;
 		}
@@ -140,6 +202,17 @@ static bool buffers_queued(struct ajv4l2_port *port)
 	return queued;
 }
 
+/* The core's timecode slot of an SDI output (the VITC one): the enum is not contiguous. */
+static unsigned int timecode_index(unsigned int ch)
+{
+	static const NTV2TCIndex idx[8] = {
+		NTV2_TCINDEX_SDI1, NTV2_TCINDEX_SDI2, NTV2_TCINDEX_SDI3, NTV2_TCINDEX_SDI4,
+		NTV2_TCINDEX_SDI5, NTV2_TCINDEX_SDI6, NTV2_TCINDEX_SDI7, NTV2_TCINDEX_SDI8,
+	};
+
+	return ch < 8 ? idx[ch] : NTV2_TCINDEX_SDI1;
+}
+
 /* One buffer into the next free frame of the ring. */
 static int transfer_frame(struct ajv4l2_port *port, struct ajv4l2_buffer *buf,
 			  AUTOCIRCULATE_TRANSFER *xfer)
@@ -148,16 +221,19 @@ static int transfer_frame(struct ajv4l2_port *port, struct ajv4l2_buffer *buf,
 	struct vb2_buffer *vb = &buf->vb.vb2_buf;
 	struct v4l2_pix_format_mplane pix;
 	u32 audio_bytes, anc_bytes[2], dropped, vpid;
+	NTV2_RP188 *tc = port->timecodes;
 	int ret;
 
 	ajv4l2_video_geometry(port, port->pixfmt, port->mode, &pix);
 	audio_bytes = vb2_get_plane_payload(vb, SDI_PLANE_AUDIO);
 	audio_bytes -= audio_bytes % SDI_AUDIO_FRAME_BYTES;
+	memset(tc, 0xff, sizeof(port->timecodes));
 	anc_build(port, vb2_plane_vaddr(vb, SDI_PLANE_ANC), vb2_get_plane_payload(vb, SDI_PLANE_ANC),
-		  anc_bytes, &dropped, &vpid);
+		  anc_bytes, &dropped, &vpid, &tc[timecode_index(port->index)]);
 	port->anc_dropped += dropped;
 	if (vpid)
 		ajv4l2_hw_set_vpid(port, vpid);
+	ajv4l2_hw_set_timecode_output(port, tc[timecode_index(port->index)].fDBB != 0xffffffff);
 	dma_sync_single_for_device(&dev->pdev->dev, port->anc[0].dma, AJV4L2_ANC_FIELD_BYTES, DMA_TO_DEVICE);
 	dma_sync_single_for_device(&dev->pdev->dev, port->anc[1].dma, AJV4L2_ANC_FIELD_BYTES, DMA_TO_DEVICE);
 
@@ -177,6 +253,8 @@ static int transfer_frame(struct ajv4l2_port *port, struct ajv4l2_buffer *buf,
 	xfer->acANCBuffer.fByteCount = anc_bytes[0];
 	xfer->acANCField2Buffer.fUserSpacePtr = (ULWord64)(uintptr_t)port->anc[1].buf;
 	xfer->acANCField2Buffer.fByteCount = anc_bytes[1];
+	xfer->acOutputTimeCodes.fKernelHandle = (ULWord64)(uintptr_t)tc;
+	xfer->acOutputTimeCodes.fByteCount = sizeof(port->timecodes);
 	ret = AutoCirculateTransfer_Ex(dev->device_number, &port->page_root, xfer);
 	if (ret)
 		return ret;
@@ -326,7 +404,7 @@ int ajv4l2_output_start(struct ajv4l2_port *port)
 	if (ret)
 		return ret;
 	ret = OemAutoCirculateInit(dev->device_number, xpt, first, last, (NTV2AudioSystem)port->index, 1,
-				   true, false, false, false, false, false, true, false, false, false,
+				   true, true, false, false, false, false, true, false, false, false,
 				   false, false, false);
 	if (ret) {
 		dev_err(&dev->pdev->dev, "SDI %u: autocirculate init failed (%d)\n", port->index + 1, ret);
