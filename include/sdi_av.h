@@ -221,12 +221,20 @@ static inline __u32 sdi_vbi_line(__u32 total_lines, __u32 row)
  * own puts 0 in hw_timestamp; a card that does not check line CRCs puts 0 in
  * crc_errors.
  *
- * Output: the client fills magic, version and audio_samples, the rest zero
- * (vendor tail included, unless the driver documents a block it takes); a
- * plane with another magic or version is not read and the frame goes
- * without it (the audio is halved between the fields). On return the driver
- * fills hw_timestamp with the card time at which it took the frame, when the
- * card has a clock.
+ * Output: the client fills magic, version, flags and audio_samples, the rest
+ * zero (vendor tail included, unless the driver documents a block it takes);
+ * a plane with another magic or version is not read and the frame goes
+ * without it (the audio is halved between the fields). Of the flags a
+ * playout node takes SDI_F_REC2020, SDI_F_HLG, SDI_F_PQ and SDI_F_LEVEL_B
+ * as a statement about that one frame; the rest tell what was received and
+ * mean nothing on the way out. A frame setting none of the three colour
+ * flags goes out with the colorimetry and the transfer characteristic the
+ * node itself is set to, and one without SDI_F_LEVEL_B with the 3G mapping
+ * the node itself is set to, so a client that states nothing changes
+ * nothing. A card that cannot change one of them between frames keeps its
+ * own setting and says so in the driver's documentation. On return the
+ * driver fills hw_timestamp with the card time at which it took the frame,
+ * when the card has a clock.
  */
 #define SDI_META_MAGIC		v4l2_fourcc('S', 'D', 'I', '0') /* an SDI frame by this contract */
 #define SDI_META_VERSION	4
