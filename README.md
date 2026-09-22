@@ -1,10 +1,11 @@
 # aja-v4l2
 
 Linux V4L2 driver for AJA SDI cards (KONA 5 and relatives). Every SDI
-input of a card gets a multi-planar capture node (`/dev/videoN`) whose
-buffers carry a whole frame: the picture, the frame's audio, the
-ancillary data packets and per-frame metadata, laid out by the SDI frame
-contract that every SDI driver of ours follows -- `include/sdi_av.h`,
+input of a card gets a multi-planar capture node (`/dev/videoN`) and
+every SDI output a multi-planar output node; their buffers carry a whole
+frame: the picture, the frame's audio, the ancillary data packets and
+per-frame metadata, laid out by the SDI frame contract that every SDI
+driver of ours follows -- `include/sdi_av.h`,
 the same file byte for byte in each of them and in the client. The
 vendor block declared in `include/ajav.h` carries only what no other
 card has, the raw receiver status words, for diagnostics; the timecode
@@ -61,6 +62,12 @@ the buffers of the client, MMAP, USERPTR or DMABUF alike.
 
 ## Using the nodes
 
+The capture nodes come first (`SDI in n`), then the output nodes (`SDI
+out n`); `media-ctl -p` shows which is which. The connectors of a KONA 5
+are bidirectional: the two nodes of a connector share its frame store
+and stream one at a time -- while the output node streams, the capture
+node reports no signal and refuses to stream, and the other way round.
+
 ```sh
 tools/ajav info /dev/video1                  # signal, detected and set timings
 v4l2-ctl -d /dev/video1 --query-dv-timings
@@ -72,7 +79,13 @@ tools/ajav cap /dev/video1 -u -n 5           # USERPTR buffers
 v4l2-ctl -d /dev/video1 --log-status         # input, counters into dmesg
 cat /sys/class/video4linux/video1/frames_skipped
 media-ctl -p -d /dev/media0                  # which node is on which connector
+tools/ajav play /dev/video6 -n 250           # bars, a tone, OP-47, SCTE-104, RP188 on SDI out 3
+tools/ajav play /dev/video6 -t 1080p50 -n 250
+tools/ajav play /dev/video6 -i /tmp/frames   # replay what cap -o wrote
 ```
+
+The generator the other SDI drivers are tested with, `sdi_gen` of the
+`sdi` crate of the streamer, plays through these nodes as it is.
 
 Planes of every buffer (`include/sdi_av.h` has the details):
 
@@ -89,13 +102,49 @@ card's audio clock at the start of the frame) are in `v4l2_buffer`, the
 geometry in `G_DV_TIMINGS`, the state of the input in `ENUMINPUT.status`
 and `V4L2_EVENT_SOURCE_CHANGE`.
 
+An output buffer is one frame to play: the picture (the whole plane),
+the audio to embed (any number of samples, none for silence) and the
+packets to insert on the given lines, the field 2 packets by their line
+numbers. The transmitter places the audio groups and the payload
+identifier itself; a payload identifier in plane 2 replaces the one
+derived from the standard, audio packets in plane 2 are dropped and
+counted. The list of packets ends at `bytesused` or at an all-zero
+header. The card holds a ring of eight frames: a buffer comes back once
+its frame has been on air and the next one has replaced it, so up to
+seven are held; with nothing queued the last frame stays on air and
+`frames_skipped` counts the repeats. Plane 3 and plane 4 are ignored.
+
+The output's standard, link rate (1.5G, 3G, 6G/12G) and payload
+identifier follow the timings set with `S_DV_TIMINGS`. Next to the
+counters, the output node carries in sysfs the settings that have no
+V4L2 control, each read back as written and applied at STREAMON:
+
+| file | values | meaning |
+|---|---|---|
+| `timing` | `reference` (default), `internal` | `reference`: the outputs of the card lock to its reference input while a signal is present there and free-run otherwise; `internal`: the card's own clock. One setting per card |
+| `level_a` | 1 (default), 0 | 3G standards (1080p50/60) as SMPTE 425 level A, or mapped to level B by the output's converter |
+| `idle` | `repeat` | what plays when nothing is queued: the last frame again |
+| `reference` | read-only | `none` or `signal`: whether the reference input carries something |
+
+Two limits of the card: its free-running frame pulse has one rate, that
+of the output that started last, so outputs of the two rate families
+(25/50 and 24/30/60) cannot free-run together -- lock them to a
+reference; and the ancillary extractor and inserter of channels 1-4
+share the frame size of channel 1, so a 2160p stream and an HD stream
+cannot run on two connectors of the same group at once (the second
+STREAMON fails with EBUSY).
+
 ## State
 
 Brought up on a KONA 5 (8K firmware) under Ubuntu 24.04 with kernel 6.14,
 with a 1080p30 source on SDI 2: capture through MMAP and USERPTR, UYVY
 and v210, hundreds of frames without a gap, `v4l2-compliance -d -m` on
-every node and the media device without a failure or a warning. Not done
-yet: the SD VBI plane, SD and 6G/12G capture on a live signal (the
-standards are in the table, the paths are not verified), 3G level B, an
-output node, the ancillary and audio planes against a source that
-carries them.
+every node and the media device without a failure or a warning. Against
+a DekTec output looped into SDI 1: 1080i50 with 16 channels of audio,
+the payload identifier, SCTE-104, OP-47 and RP188 packets, all byte for
+byte. The output nodes play 1080i50, 1080p25/30/50/60 and 720p50 from
+`sdi_gen` and `ajav play` at the right frame period without repeats or
+DMA errors; what reaches the wire is verified next against the DekTec
+input. Not done yet: the SD VBI plane, SD and 6G/12G on a live signal
+(the standards are in the table, the paths are not verified), 3G level B
+on the input, `idle=black`.
