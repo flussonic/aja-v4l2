@@ -270,6 +270,38 @@ static int output_thread(void *data)
 	return 0;
 }
 
+/* The 25/50 Hz family of rates against the 24/30/60 one. */
+static bool rate_family_25(const struct ajv4l2_mode *m)
+{
+	return m->fps_num % 25 == 0 && m->fps_den == 1;
+}
+
+/*
+ * The card's free-running frame pulse has one rate; a second output in
+ * the other family would pull the first off its rate unless both lock
+ * to the reference input.
+ */
+static int pulse_check(struct ajv4l2_port *port)
+{
+	struct ajv4l2_device *dev = port->dev;
+	unsigned int i;
+
+	if (port->reference && ajv4l2_hw_reference_present(dev))
+		return 0;
+	for (i = 0; i < dev->num_ports; i++) {
+		const struct ajv4l2_port *other = dev->ports[i];
+
+		if (!other || other == port || !other->output || !other->streaming)
+			continue;
+		if (rate_family_25(other->mode) != rate_family_25(port->mode)) {
+			dev_warn(&dev->pdev->dev, "SDI out %u: the frame pulse free-runs at the rate family of SDI out %u\n",
+				 port->index + 1, other->index + 1);
+			return -EBUSY;
+		}
+	}
+	return 0;
+}
+
 int ajv4l2_output_start(struct ajv4l2_port *port)
 {
 	struct ajv4l2_device *dev = port->dev;
@@ -278,6 +310,9 @@ int ajv4l2_output_start(struct ajv4l2_port *port)
 	int ret;
 
 	ret = ajv4l2_ring_check(port);
+	if (ret)
+		return ret;
+	ret = pulse_check(port);
 	if (ret)
 		return ret;
 	ret = ajv4l2_hw_setup_output(port);
