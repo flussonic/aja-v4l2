@@ -140,11 +140,14 @@ Brought up on a KONA 5 (8K firmware) under Ubuntu 24.04 with kernel 6.14,
 with a 1080p30 source on SDI 2: capture through MMAP and USERPTR, UYVY
 and v210, hundreds of frames without a gap, `v4l2-compliance -d -m` on
 every node and the media device without a failure or a warning. Against
-a DekTec output looped into SDI 1: 1080i50 with 16 channels of audio,
-the payload identifier, SCTE-104, OP-47 and RP188 packets, all byte for
-byte. The output nodes play 1080i50, 1080p25/30/50/60 and 720p50 from
-`sdi_gen` and `ajav play` at the right frame period without repeats or
-DMA errors; what reaches the wire is verified next against the DekTec
-input. Not done yet: the SD VBI plane, SD and 6G/12G on a live signal
-(the standards are in the table, the paths are not verified), 3G level B
-on the input, `idle=black`.
+a DekTec output looped into SDI 1: 1080i50, 2160p25 over 6G and 2160p50
+over 12G with 16 channels of audio, the payload identifier, SCTE-104,
+OP-47 and RP188 packets, all byte for byte, with no CRC errors and no
+gaps. The output nodes were read back by the same DekTec input on the
+same three standards: picture without 2SI artefacts, 16 channels of
+audio, every ANC packet in every frame, the payload identifier of each
+link rate and the ATC timecode. At 2160p50 the output's kernel thread
+takes 0.5% of a core: video goes by DMA straight from the buffer, the
+two-sample interleave and the v210 packing are the FPGA's, and only the
+audio and ANC pass through a bounce buffer. Not done yet: the SD VBI
+plane, SD on a live signal, 3G level B on the input, `idle=black`.
