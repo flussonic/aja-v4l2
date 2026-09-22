@@ -366,6 +366,9 @@ void ajv4l2_output_stop(struct ajv4l2_port *port)
 	}
 	OemAutoCirculateAbort(dev->device_number, output_xpt(port->index));
 	ajv4l2_anc_bounce_free(port);
+	/* the connector is an input again for its capture node */
+	if (port->sibling)
+		ajv4l2_input_set_direction(port, true);
 	spin_lock_irqsave(&port->qlock, flags);
 	list_for_each_entry_safe(buf, tmp, &port->on_air, list) {
 		list_del(&buf->list);
