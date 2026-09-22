@@ -3,8 +3,10 @@
  * The V4L2 layer over the ntv2 driver core. One struct ajv4l2_device per
  * card holds what the core knows about it (its number in the core's
  * tables, the PCI device, the device id) and the media device; one struct
- * ajv4l2_port per SDI connector holds the capture node, its queue and
- * the state of the input. The frame contract the nodes follow is
+ * ajv4l2_port per node: the capture node of an SDI connector with its
+ * queue and the state of the input, or the output node of a connector
+ * that can transmit. The two nodes of a connector share its frame store
+ * and stream one at a time. The frame contract the nodes follow is
  * include/sdi_av.h, the same file in every SDI driver of ours.
  */
 #ifndef AJV4L2_H
@@ -104,7 +106,9 @@ struct ajv4l2_device;
 struct ajv4l2_port {
 	struct ajv4l2_device *dev;
 	unsigned int index;		/* SDI connector, 0-based */
-	NTV2Channel channel;		/* frame store and input of the same number */
+	NTV2Channel channel;		/* frame store, input and output of the same number */
+	bool output;			/* an SDI out node, else an SDI in node */
+	struct ajv4l2_port *sibling;	/* the node of the other direction on this channel */
 
 	struct video_device vdev;
 	struct media_pad vdev_pad;
@@ -115,7 +119,8 @@ struct ajv4l2_port {
 	struct mutex lock;		/* ioctls and the queue */
 	struct vb2_queue queue;
 	spinlock_t qlock;		/* the buffer lists */
-	struct list_head queued;	/* buffers waiting for a frame */
+	struct list_head queued;	/* buffers waiting for a frame, or to be played */
+	struct list_head on_air;	/* output: buffers in the ring, oldest first */
 
 	struct v4l2_dv_timings timings;	/* S_DV_TIMINGS */
 	const struct ajv4l2_mode *mode;	/* the same, as a table entry */
@@ -137,9 +142,14 @@ struct ajv4l2_port {
 	u32 sequence;
 	u32 crc_errors_base;
 
+	/* output settings, sysfs */
+	bool level_a;			/* 3G as SMPTE 425 level A, else level B */
+	bool reference;			/* lock to the reference input while it carries a signal */
+
 	/* counters since STREAMON, sysfs */
 	u64 frames, frames_skipped, no_buffer, resyncs, no_sync, events_missed;
 	u64 crc_errors, dma_errors, restarts;
+	u64 anc_dropped, audio_dropped;
 };
 
 struct ajv4l2_device {
@@ -158,7 +168,7 @@ struct ajv4l2_device {
 	struct v4l2_device v4l2_dev;
 	struct media_device mdev;
 	struct device *hwmon;
-	struct ajv4l2_port *ports[AJV4L2_MAX_PORTS];
+	struct ajv4l2_port *ports[2 * AJV4L2_MAX_PORTS];	/* inputs, then outputs */
 	unsigned int num_ports;
 };
 

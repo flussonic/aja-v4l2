@@ -84,10 +84,13 @@ static void ajv4l2_media_init(struct ajv4l2_device *dev)
 	dev->v4l2_dev.mdev = mdev;
 }
 
-/* The V4L2 side of a card: a media device, a v4l2_device and a node per SDI input. */
+/*
+ * The V4L2 side of a card: a media device, a v4l2_device, a capture node
+ * per SDI input and an output node per SDI output that has a frame store.
+ */
 static int ajv4l2_register(struct ajv4l2_device *dev)
 {
-	unsigned int i;
+	unsigned int i, inputs, outputs;
 	int ret;
 
 	ajv4l2_media_init(dev);
@@ -96,17 +99,26 @@ static int ajv4l2_register(struct ajv4l2_device *dev)
 		media_device_cleanup(&dev->mdev);
 		return ret;
 	}
-	dev->num_ports = min_t(unsigned int, dev->sdi_inputs, AJV4L2_MAX_PORTS);
+	inputs = min_t(unsigned int, dev->sdi_inputs, AJV4L2_MAX_PORTS);
+	outputs = min3(dev->sdi_outputs, dev->channels, (unsigned int)AJV4L2_MAX_PORTS);
+	dev->num_ports = inputs + outputs;
 	for (i = 0; i < dev->num_ports; i++) {
 		struct ajv4l2_port *port = kzalloc(sizeof(*port), GFP_KERNEL);
+		unsigned int n = i < inputs ? i : i - inputs;
 
 		if (!port) {
 			ret = -ENOMEM;
 			goto err;
 		}
 		port->dev = dev;
-		port->index = i;
-		port->channel = (NTV2Channel)i;
+		port->index = n;
+		port->channel = (NTV2Channel)n;
+		port->output = i >= inputs;
+		/* the capture node of the same channel, when there is one */
+		if (port->output && n < inputs) {
+			port->sibling = dev->ports[n];
+			dev->ports[n]->sibling = port;
+		}
 		ret = ajv4l2_video_register(port);
 		if (ret) {
 			kfree(port);

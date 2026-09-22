@@ -31,7 +31,7 @@ VENDOR_OBJS := ntv2anc ntv2aux ntv2commonreg ntv2displayid ntv2genlock2 ntv2genl
 VENDOR_LIN_OBJS := ntv2dma ntv2driverautocirculate ntv2driver ntv2driverdbgmsgctl \
                    ntv2driverstatus ntv2drivertask ntv2kona2 ntv2serial registerio \
                    ntv2devicefeatures ntv2driverprocamp ntv2vpidfromspec
-OUR_OBJS := ajv4l2_module ajv4l2_modes ajv4l2_input ajv4l2_video ajv4l2_hw ajv4l2_capture ajv4l2_sysfs ajv4l2_hwmon
+OUR_OBJS := ajv4l2_module ajv4l2_modes ajv4l2_input ajv4l2_video ajv4l2_hw ajv4l2_capture ajv4l2_output ajv4l2_sysfs ajv4l2_hwmon
 
 obj-m       := $(MODULE).o
 $(MODULE)-y := $(addsuffix .o,$(addprefix $(VDRV)/,$(VENDOR_OBJS))) \
