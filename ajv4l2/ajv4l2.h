@@ -151,9 +151,9 @@ struct ajv4l2_port {
 	bool reference;			/* lock to the reference input while it carries a signal */
 
 	/* counters since STREAMON, sysfs */
-	u64 frames, frames_skipped, no_buffer, resyncs, no_sync, events_missed;
-	u64 crc_errors, dma_errors, restarts;
-	u64 anc_dropped, audio_dropped;
+	u64 frames, frames_skipped, no_buffer;
+	u64 crc_errors, dma_errors;
+	u64 anc_dropped;
 };
 
 struct ajv4l2_device {
