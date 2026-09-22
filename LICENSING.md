@@ -1,0 +1,31 @@
+# Licensing
+
+Copyright (C) 2026 Max Lapshin <max@flussonic.com>
+
+Our own code -- the V4L2 layer in `ajv4l2/`, the vendor block header
+`include/ajav.h`, the client in `tools/` and the build and packaging
+files -- is dual licensed: you may use it under the terms of the MIT
+license (`LICENSE`) or of the GNU General Public License version 2
+(`LICENSE.GPL-2.0`), at your option. Each file says so in its
+`SPDX-License-Identifier` line.
+
+The loadable module declares `MODULE_LICENSE("Dual MIT/GPL")`, the
+string the kernel recognises for exactly this choice: the module is free
+to use the GPL-only exports of the V4L2, videobuf2, media controller and
+hwmon cores, and a recipient who wants our code under MIT alone still
+has that right.
+
+`include/sdi_av.h` is the SDI frame contract shared byte for byte with
+our other SDI drivers, and is GPL-2.0 WITH Linux-syscall-note -- the
+uapi exception, so a program of any license may include it to speak to
+the nodes.
+
+`vendor/libajantv2/` is the Linux kernel driver of AJA's libajantv2
+(https://github.com/aja-video/libajantv2), Copyright (C) AJA Video
+Systems, Inc., under the MIT license in `vendor/libajantv2/LICENSE`.
+Our changes to it are listed in `vendor/PATCHES.md` and stay under that
+same license.
+
+A binary built from this tree is a combined work linked against the
+Linux kernel, and is distributed under the GNU General Public License
+version 2; the permissions above are what the sources themselves grant.

@@ -162,4 +162,4 @@ that choice, which is what lets the module use the GPL-only exports of
 the V4L2, videobuf2, media controller and hwmon cores. `include/sdi_av.h`
 carries the uapi syscall note, so a program of any license may include
 it. The sources under `vendor/` stay under AJA's own MIT license. See
-`LICENSE`.
+`LICENSING.md`.
