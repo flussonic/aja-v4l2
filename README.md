@@ -151,3 +151,15 @@ takes 0.5% of a core: video goes by DMA straight from the buffer, the
 two-sample interleave and the v210 packing are the FPGA's, and only the
 audio and ANC pass through a bounce buffer. Not done yet: the SD VBI
 plane, SD on a live signal, 3G level B on the input, `idle=black`.
+
+## Licensing
+
+Our code -- the V4L2 layer in `ajv4l2/`, the vendor block header
+`include/ajav.h`, the client in `tools/` and the build files -- is dual
+licensed, MIT or GPL-2.0 at your option, and the module declares
+`MODULE_LICENSE("Dual MIT/GPL")`: the string the kernel recognises for
+that choice, which is what lets the module use the GPL-only exports of
+the V4L2, videobuf2, media controller and hwmon cores. `include/sdi_av.h`
+carries the uapi syscall note, so a program of any license may include
+it. The sources under `vendor/` stay under AJA's own MIT license. See
+`LICENSE`.

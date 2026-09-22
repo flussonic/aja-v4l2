@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+/* SPDX-License-Identifier: (GPL-2.0 OR MIT) */
+/* Copyright (C) 2026 Max Lapshin <max@flussonic.com> */
 #ifndef AJV4L2_HW_H
 #define AJV4L2_HW_H
 

@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
+/* SPDX-License-Identifier: ((GPL-2.0 WITH Linux-syscall-note) OR MIT) */
+/* Copyright (C) 2026 Max Lapshin <max@flussonic.com> */
 /*
  * What an AJA card adds to the SDI frame contract (sdi_av.h): its name in
  * the vendor tail of the metadata and the block that follows the common

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: (GPL-2.0 OR MIT)
+# Copyright (C) 2026 Max Lapshin <max@flussonic.com>
 # kbuild description of the module: the object list and the flags. The
 # Makefile next to it drives kbuild and the bench targets, so that a
 # top-level make can carry KERNELRELEASE (DKMS does) without being taken

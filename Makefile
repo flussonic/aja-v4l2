@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: (GPL-2.0 OR MIT)
+# Copyright (C) 2026 Max Lapshin <max@flussonic.com>
 # Build of the ajv4l2 module: a V4L2 driver for AJA SDI cards (KONA 5 and
 # relatives). The driver core from AJA's libajantv2 (vendor/, MIT) is
 # compiled into the same module as our V4L2 layer (ajv4l2/).

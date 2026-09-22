@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+// Copyright (C) 2026 Max Lapshin <max@flussonic.com>
 /*
  * Frame capture. The driver core's autocirculate engine keeps a ring of
  * frames in card memory for the channel and, on every input vertical

@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+// Copyright (C) 2026 Max Lapshin <max@flussonic.com>
 /*
  * The video standards a port can receive, by the NTV2 name the core's
  * detector reports, and the mapping between them and V4L2 DV timings.

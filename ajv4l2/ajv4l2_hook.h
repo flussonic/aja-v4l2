@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+/* SPDX-License-Identifier: (GPL-2.0 OR MIT) */
+/* Copyright (C) 2026 Max Lapshin <max@flussonic.com> */
 /*
  * What the vendor driver core sees of the V4L2 layer: the name the PCI
  * driver carries and the two calls made from its probe and remove. Nothing

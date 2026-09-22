@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+// Copyright (C) 2026 Max Lapshin <max@flussonic.com>
 /*
  * Stream counters of a node, in sysfs next to it
  * (/sys/class/video4linux/videoN/): the names every SDI driver of ours uses,
