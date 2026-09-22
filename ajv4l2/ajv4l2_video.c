@@ -351,9 +351,10 @@ static int ajv4l2_log_status(struct file *file, void *fh)
 			  port->reference ? "reference" : "internal");
 	} else {
 		ajv4l2_input_read(port, &st);
-		v4l2_info(&port->dev->v4l2_dev, "%s: input %s (status 0x%08x vpid %08x/%08x), set %s, %s\n",
+		v4l2_info(&port->dev->v4l2_dev, "%s: input %s (status 0x%08x link 0x%02x vpid %08x/%08x, %s), set %s, %s\n",
 			  port->vdev.name, ajv4l2_input_describe(&st, buf, sizeof(buf)), st.status,
-			  st.vpid_a, st.vpid_b, port->mode->name,
+			  st.link_status, st.vpid_a, st.vpid_b,
+			  ajv4l2_input_is_receiving(port) ? "receiving" : "transmitting", port->mode->name,
 			  port->streaming ? "streaming" : "idle");
 	}
 	v4l2_info(&port->dev->v4l2_dev, "%s: frames %llu skipped %llu no_buffer %llu resyncs %llu no_sync %llu events_missed %llu crc_errors %llu dma_errors %llu restarts %llu anc_dropped %llu audio_dropped %llu\n",

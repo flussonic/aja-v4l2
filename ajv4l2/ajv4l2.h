@@ -185,6 +185,7 @@ static inline struct ajv4l2_buffer *to_ajv4l2_buffer(struct vb2_buffer *vb)
 /* ajv4l2_input.c */
 void ajv4l2_input_read(struct ajv4l2_port *port, struct ajv4l2_input_state *st);
 void ajv4l2_input_set_direction(struct ajv4l2_port *port, bool receive);
+bool ajv4l2_input_is_receiving(struct ajv4l2_port *port);
 void ajv4l2_input_poll_start(struct ajv4l2_port *port);
 void ajv4l2_input_poll_stop(struct ajv4l2_port *port);
 const char *ajv4l2_input_describe(const struct ajv4l2_input_state *st, char *buf, size_t len);
