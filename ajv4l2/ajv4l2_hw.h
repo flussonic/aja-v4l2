@@ -10,6 +10,7 @@ void ajv4l2_hw_set_reference(struct ajv4l2_port *port);
 bool ajv4l2_hw_reference_present(struct ajv4l2_device *dev);
 void ajv4l2_hw_set_level(struct ajv4l2_port *port);
 void ajv4l2_hw_set_vpid(struct ajv4l2_port *port, u32 vpid);
+void ajv4l2_hw_set_timecode_output(struct ajv4l2_port *port, bool on);
 unsigned int ajv4l2_hw_output_event(unsigned int ch);
 u32 ajv4l2_hw_audio_present(struct ajv4l2_port *port);
 NTV2FrameBufferFormat ajv4l2_hw_fbf(u32 pixfmt);

@@ -4211,6 +4211,16 @@ OemBeginAutoCirculateTransfer_Ex (ULWord deviceNumber,
 		ULWord			byteCount = pTransferStruct->acOutputTimeCodes.fByteCount;
 
 		memset(inTCArray, 0, sizeof(inTCArray));
+#if defined(AJV4L2)
+		/* a kernel caller hands the array by its kernel address */
+		if (byteCount && pTransferStruct->acOutputTimeCodes.fKernelHandle)
+		{
+			memcpy(inTCArray, (const void *)(uintptr_t)pTransferStruct->acOutputTimeCodes.fKernelHandle,
+			       byteCount > sizeof(inTCArray) ? sizeof(inTCArray) : byteCount);
+			CopyNTV2TimeCodeArrayToFrameStampTCArray(&pAuto->frameStamp[frameNumber].internalTCArray, inTCArray, byteCount);
+		}
+		else
+#endif
 		if (byteCount && pTransferStruct->acOutputTimeCodes.fUserSpacePtr)
 		{
 			if (copy_from_user((void *)inTCArray, (const void *)pTransferStruct->acOutputTimeCodes.fUserSpacePtr, byteCount))

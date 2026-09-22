@@ -121,6 +121,9 @@ struct ajv4l2_port {
 	spinlock_t qlock;		/* the buffer lists */
 	struct list_head queued;	/* buffers waiting for a frame, or to be played */
 	struct list_head on_air;	/* output: buffers in the ring, oldest first */
+	const struct sdi_anc_packet *anc_list[256];	/* output: the frame's packets, sorted */
+	NTV2_RP188 timecodes[NTV2_MAX_NUM_TIMECODE_INDEXES];	/* output: the frame's timecode for the core */
+	bool timecode_output;		/* output: the card's ATC inserter is on */
 
 	struct v4l2_dv_timings timings;	/* S_DV_TIMINGS */
 	const struct ajv4l2_mode *mode;	/* the same, as a table entry */
