@@ -16,14 +16,15 @@
 #include "ajv4l2_hw.h"
 #include "ajav.h"
 
-#define AJV4L2_RING_FRAMES	8
-#define AJV4L2_ANC_FIELD_BYTES	0x2000
-#define AJV4L2_WAIT_MS		100
-
-/* The autocirculate crosspoint of an input channel. */
+/* The autocirculate crosspoint of an input channel: the enum is not contiguous. */
 static NTV2Crosspoint input_xpt(unsigned int ch)
 {
-	return (NTV2Crosspoint)(NTV2CROSSPOINT_INPUT1 + ch);
+	static const NTV2Crosspoint xpt[8] = {
+		NTV2CROSSPOINT_INPUT1, NTV2CROSSPOINT_INPUT2, NTV2CROSSPOINT_INPUT3, NTV2CROSSPOINT_INPUT4,
+		NTV2CROSSPOINT_INPUT5, NTV2CROSSPOINT_INPUT6, NTV2CROSSPOINT_INPUT7, NTV2CROSSPOINT_INPUT8,
+	};
+
+	return ch < 8 ? xpt[ch] : NTV2CROSSPOINT_INVALID;
 }
 
 /* DMA-able planes: the three the card writes by DMA. */
@@ -35,6 +36,7 @@ static bool plane_by_dma(unsigned int plane)
 int ajv4l2_capture_buf_init(struct vb2_buffer *vb)
 {
 	struct ajv4l2_port *port = vb2_get_drv_priv(vb->vb2_queue);
+	enum dma_data_direction dir = port->output ? DMA_TO_DEVICE : DMA_FROM_DEVICE;
 	unsigned int i;
 	int ret;
 
@@ -47,7 +49,7 @@ int ajv4l2_capture_buf_init(struct vb2_buffer *vb)
 		if (!sgt)
 			return -EINVAL;
 		ret = dmaPageRootAddSg(port->dev->device_number, &port->page_root, sgt,
-				       vb2_plane_size(vb, i), sgt->sgl, sgt->nents, DMA_FROM_DEVICE);
+				       vb2_plane_size(vb, i), sgt->sgl, sgt->nents, dir);
 		if (ret) {
 			while (i--)
 				if (plane_by_dma(i))
@@ -75,19 +77,20 @@ void ajv4l2_capture_buf_cleanup(struct vb2_buffer *vb)
  * registered with the core's DMA under its own address: the transfer names
  * them separately and the core looks each up by the exact address.
  */
-static int anc_bounce_alloc(struct ajv4l2_port *port)
+int ajv4l2_anc_bounce_alloc(struct ajv4l2_port *port)
 {
 	struct device *dev = &port->dev->pdev->dev;
+	enum dma_data_direction dir = port->output ? DMA_TO_DEVICE : DMA_FROM_DEVICE;
 	unsigned int f;
 	int ret;
 
 	for (f = 0; f < 2; f++) {
 		struct ajv4l2_anc_bounce *b = &port->anc[f];
 
-		b->buf = kmalloc(AJV4L2_ANC_FIELD_BYTES, GFP_KERNEL);
+		b->buf = kzalloc(AJV4L2_ANC_FIELD_BYTES, GFP_KERNEL);
 		if (!b->buf)
 			goto err;
-		b->dma = dma_map_single(dev, b->buf, AJV4L2_ANC_FIELD_BYTES, DMA_FROM_DEVICE);
+		b->dma = dma_map_single(dev, b->buf, AJV4L2_ANC_FIELD_BYTES, dir);
 		if (dma_mapping_error(dev, b->dma)) {
 			kfree(b->buf);
 			b->buf = NULL;
@@ -98,9 +101,9 @@ static int anc_bounce_alloc(struct ajv4l2_port *port)
 		sg_dma_address(&b->sg) = b->dma;
 		sg_dma_len(&b->sg) = AJV4L2_ANC_FIELD_BYTES;
 		ret = dmaPageRootAddSg(port->dev->device_number, &port->page_root, b->buf,
-				       AJV4L2_ANC_FIELD_BYTES, &b->sg, 1, DMA_FROM_DEVICE);
+				       AJV4L2_ANC_FIELD_BYTES, &b->sg, 1, dir);
 		if (ret) {
-			dma_unmap_single(dev, b->dma, AJV4L2_ANC_FIELD_BYTES, DMA_FROM_DEVICE);
+			dma_unmap_single(dev, b->dma, AJV4L2_ANC_FIELD_BYTES, dir);
 			kfree(b->buf);
 			b->buf = NULL;
 			goto err;
@@ -112,15 +115,16 @@ err:
 		struct ajv4l2_anc_bounce *b = &port->anc[f];
 
 		dmaPageRootRemove(port->dev->device_number, &port->page_root, b->buf, AJV4L2_ANC_FIELD_BYTES);
-		dma_unmap_single(dev, b->dma, AJV4L2_ANC_FIELD_BYTES, DMA_FROM_DEVICE);
+		dma_unmap_single(dev, b->dma, AJV4L2_ANC_FIELD_BYTES, dir);
 		kfree(b->buf);
 		b->buf = NULL;
 	}
 	return -ENOMEM;
 }
 
-static void anc_bounce_free(struct ajv4l2_port *port)
+void ajv4l2_anc_bounce_free(struct ajv4l2_port *port)
 {
+	enum dma_data_direction dir = port->output ? DMA_TO_DEVICE : DMA_FROM_DEVICE;
 	unsigned int f;
 
 	for (f = 0; f < 2; f++) {
@@ -129,7 +133,7 @@ static void anc_bounce_free(struct ajv4l2_port *port)
 		if (!b->buf)
 			continue;
 		dmaPageRootRemove(port->dev->device_number, &port->page_root, b->buf, AJV4L2_ANC_FIELD_BYTES);
-		dma_unmap_single(&port->dev->pdev->dev, b->dma, AJV4L2_ANC_FIELD_BYTES, DMA_FROM_DEVICE);
+		dma_unmap_single(&port->dev->pdev->dev, b->dma, AJV4L2_ANC_FIELD_BYTES, dir);
 		kfree(b->buf);
 		b->buf = NULL;
 	}
@@ -482,47 +486,52 @@ static u32 ring_span(const struct ajv4l2_device *dev)
 	return NTV2DeviceCanDo12gRouting(dev->device_id) ? AJV4L2_RING_FRAMES * 4 : AJV4L2_RING_FRAMES;
 }
 
+void ajv4l2_ring_frames(const struct ajv4l2_port *port, u32 *first, u32 *last)
+{
+	bool quad = port->mode->flags & AJV4L2_MODE_F_QUAD;
+	u32 base = port->index * ring_span(port->dev);
+
+	*first = quad ? base / 4 : base;
+	*last = *first + AJV4L2_RING_FRAMES - 1;
+}
+
 /*
  * The core places the extractor's ANC region by the frame size of channel
  * 1 (5 for the second group) while the DMA reads it by the channel's own,
  * so ports of one group cannot stream 4K next to HD.
  */
-static bool raster_conflict(const struct ajv4l2_port *port)
+int ajv4l2_ring_check(struct ajv4l2_port *port)
 {
 	const struct ajv4l2_device *dev = port->dev;
 	bool quad = port->mode->flags & AJV4L2_MODE_F_QUAD;
 	unsigned int i, group = port->index / 4;
 
+	if (port->sibling && port->sibling->streaming) {
+		dev_warn(&dev->pdev->dev, "SDI %u: the %s node of the connector is streaming\n",
+			 port->index + 1, port->output ? "capture" : "output");
+		return -EBUSY;
+	}
 	for (i = 0; i < dev->num_ports; i++) {
 		const struct ajv4l2_port *other = dev->ports[i];
 
 		if (!other || other == port || !other->streaming || other->index / 4 != group)
 			continue;
-		if (!!(other->mode->flags & AJV4L2_MODE_F_QUAD) != quad)
-			return true;
+		if (!!(other->mode->flags & AJV4L2_MODE_F_QUAD) != quad) {
+			dev_warn(&dev->pdev->dev, "SDI %u: %s cannot stream next to a %s port of the same group\n",
+				 port->index + 1, quad ? "2160p" : "HD", quad ? "HD" : "2160p");
+			return -EBUSY;
+		}
 	}
-	return false;
+	return 0;
 }
 
-int ajv4l2_capture_start(struct ajv4l2_port *port)
+/* Whether the ring of the port, sized for its standard, fits the card. */
+int ajv4l2_ring_fits(struct ajv4l2_port *port)
 {
 	struct ajv4l2_device *dev = port->dev;
-	NTV2Crosspoint xpt = input_xpt(port->index);
-	bool quad = port->mode->flags & AJV4L2_MODE_F_QUAD;
-	u32 base = port->index * ring_span(dev);
-	u32 first = quad ? base / 4 : base, last = first + AJV4L2_RING_FRAMES - 1;
-	u32 frame_bytes, memory;
-	struct ajv4l2_input_state st;
-	int ret;
+	u32 first, last, frame_bytes, memory;
 
-	if (raster_conflict(port)) {
-		dev_warn(&dev->pdev->dev, "SDI %u: %s cannot stream next to a %s port of the same group\n",
-			 port->index + 1, quad ? "2160p" : "HD", quad ? "HD" : "2160p");
-		return -EBUSY;
-	}
-	ret = ajv4l2_hw_setup_capture(port);
-	if (ret)
-		return ret;
+	ajv4l2_ring_frames(port, &first, &last);
 	frame_bytes = GetFrameBufferSize(dev->ctx, port->channel);
 	memory = NTV2DeviceGetActiveMemorySize(dev->device_id);
 	if (!frame_bytes || (u64)(last + 1) * frame_bytes > memory) {
@@ -530,7 +539,28 @@ int ajv4l2_capture_start(struct ajv4l2_port *port)
 			port->index + 1, first, last, frame_bytes, memory);
 		return -ENOSPC;
 	}
-	ret = anc_bounce_alloc(port);
+	return 0;
+}
+
+int ajv4l2_capture_start(struct ajv4l2_port *port)
+{
+	struct ajv4l2_device *dev = port->dev;
+	NTV2Crosspoint xpt = input_xpt(port->index);
+	u32 first, last;
+	struct ajv4l2_input_state st;
+	int ret;
+
+	ret = ajv4l2_ring_check(port);
+	if (ret)
+		return ret;
+	ret = ajv4l2_hw_setup_capture(port);
+	if (ret)
+		return ret;
+	ret = ajv4l2_ring_fits(port);
+	if (ret)
+		return ret;
+	ajv4l2_ring_frames(port, &first, &last);
+	ret = ajv4l2_anc_bounce_alloc(port);
 	if (ret)
 		return ret;
 	ajv4l2_input_read(port, &st);
@@ -560,7 +590,7 @@ int ajv4l2_capture_start(struct ajv4l2_port *port)
 err_ac:
 	OemAutoCirculateAbort(dev->device_number, xpt);
 err_anc:
-	anc_bounce_free(port);
+	ajv4l2_anc_bounce_free(port);
 	return ret;
 }
 
@@ -574,7 +604,7 @@ void ajv4l2_capture_stop(struct ajv4l2_port *port)
 		port->thread = NULL;
 	}
 	OemAutoCirculateAbort(dev->device_number, input_xpt(port->index));
-	anc_bounce_free(port);
+	ajv4l2_anc_bounce_free(port);
 }
 
 void ajv4l2_capture_kick(struct ajv4l2_port *port)

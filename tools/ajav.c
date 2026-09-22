@@ -11,6 +11,15 @@
  *     -a          print the first audio samples of every frame
  *     -A          print the ancillary packets of every frame
  *     -o DIR      write the planes of every frame into DIR
+ *   ajav play /dev/videoN [options]  play frames on an output node
+ *     -n N        frames to play (default 250)
+ *     -f v210     pixel format (uyvy, v210)
+ *     -t NAME     timings by name (default 1080i50)
+ *     -i DIR      play the planes written by cap -o, in a loop
+ *     -g N        leave the queue empty for half a second every N frames
+ *   Without -i the frames are colour bars with a moving marker, a 1 kHz
+ *   and a 2 kHz tone on channels 1 and 2, OP-47 with the frame number,
+ *   SCTE-104 and an RP188 packet; the payload identifier the card adds.
  */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -26,6 +35,7 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+#include <math.h>
 #include <linux/videodev2.h>
 #include "sdi_av.h"
 #include "ajav.h"
@@ -354,12 +364,317 @@ static int cmd_cap(int argc, char **argv)
 	return got == count ? 0 : 1;
 }
 
+
+/* play */
+
+static void bars_line(uint8_t *line, unsigned int width, uint32_t fmt, unsigned int x,
+		      unsigned int y)
+{
+	static const uint8_t bars[8][3] = {	/* Y Cb Cr, 75% bars */
+		{ 180, 128, 128 }, { 162, 44, 142 }, { 131, 156, 44 }, { 112, 72, 58 },
+		{ 84, 184, 198 }, { 65, 100, 212 }, { 35, 212, 114 }, { 16, 128, 128 },
+	};
+	unsigned int i;
+
+	for (i = 0; i < width; i += 2) {
+		const uint8_t *b = bars[i * 8 / width];
+		uint8_t yy = b[0], cb = b[1], cr = b[2];
+
+		if (i >= x && i < x + 32 && y >= 8 && y < 72) {
+			yy = 235; cb = 128; cr = 128;
+		}
+		if (fmt == SDI_PIX_FMT_UYVY) {
+			line[i * 2] = cb; line[i * 2 + 1] = yy; line[i * 2 + 2] = cr; line[i * 2 + 3] = yy;
+		} else {
+			/* v210: six samples in two words, Cb Y Cr Y Cb Y ..., 8-bit values shifted up */
+			uint32_t *w = (uint32_t *)line;
+			unsigned int s = i * 2, wi = s / 3, sh = (s % 3) * 10, k;
+			uint32_t v[4] = { cb << 2, yy << 2, cr << 2, yy << 2 };
+
+			for (k = 0; k < 4; k++) {
+				w[wi] |= v[k] << sh;
+				sh += 10;
+				if (sh == 30) {
+					sh = 0;
+					wi++;
+				}
+			}
+		}
+	}
+}
+
+static size_t put_anc(uint8_t *plane, size_t off, unsigned int line, uint8_t did, uint8_t sdid,
+		      uint8_t flags, const uint8_t *data, unsigned int dc)
+{
+	struct sdi_anc_packet *pk = (void *)(plane + off);
+	unsigned int i;
+
+	memset(pk, 0, SDI_ANC_PACKET_BYTES(dc));
+	pk->line = line;
+	pk->did = did;
+	pk->sdid = sdid;
+	pk->data_count = dc;
+	pk->flags = flags;
+	for (i = 0; i < dc; i++)
+		pk->udw[i] = data[i];	/* the driver adds the parity bits */
+	return off + SDI_ANC_PACKET_BYTES(dc);
+}
+
+/* The planes of one synthetic frame; returns the bytes used of each. */
+static void make_frame(struct plane_mem mem[SDI_NUM_PLANES], size_t used[SDI_NUM_PLANES],
+		       const struct v4l2_pix_format_mplane *pix, unsigned int frame,
+		       unsigned int samples, unsigned int *phase)
+{
+	unsigned int width = pix->width, height = pix->height, i;
+	unsigned int stride = pix->plane_fmt[SDI_PLANE_VIDEO].bytesperline;
+	uint8_t *video = mem[SDI_PLANE_VIDEO].p, *anc = mem[SDI_PLANE_ANC].p;
+	int32_t *audio = mem[SDI_PLANE_AUDIO].p;
+	bool interlaced = pix->field == V4L2_FIELD_INTERLACED;
+	unsigned int f2 = height == 1080 ? 563 : height == 576 ? 313 : height == 486 ? 263 : 0;
+	uint8_t op47[10] = { 0x51, 0x15, 0x00, 0x11 };
+	static const uint8_t scte104[12] = { 0x08, 0x02, 0xff, 0x01, 0x00, 0x00, 0x00, 0x01 };
+	static const uint8_t rp188[16];
+	size_t off = 0;
+
+	memset(video, 0, (size_t)stride * height);
+	for (i = 0; i < height; i++)
+		bars_line(video + (size_t)i * stride, width, pix->pixelformat, frame % (width - 32), i);
+	for (i = 0; i < samples; i++, (*phase)++) {
+		int32_t *s = audio + (size_t)i * SDI_AUDIO_CHANNELS;
+
+		memset(s, 0, SDI_AUDIO_FRAME_BYTES);
+		s[0] = (int32_t)(sin(2 * M_PI * 1000.0 * *phase / 48000) * 0x3fffff) * 256;
+		s[1] = (int32_t)(sin(2 * M_PI * 2000.0 * *phase / 48000) * 0x3fffff) * 256;
+	}
+	op47[4] = frame >> 24; op47[5] = frame >> 16; op47[6] = frame >> 8; op47[7] = frame;
+	off = put_anc(anc, off, 9, 0x60, 0x60, SDI_ANC_F_HANC, rp188, sizeof(rp188));
+	off = put_anc(anc, off, 12, 0x43, 0x02, 0, op47, sizeof(op47));
+	off = put_anc(anc, off, 12, 0x41, 0x07, SDI_ANC_F_CHROMA, scte104, sizeof(scte104));
+	if (interlaced) {
+		off = put_anc(anc, off, f2 + 8, 0x60, 0x60, SDI_ANC_F_HANC, rp188, sizeof(rp188));
+		off = put_anc(anc, off, f2 + 12, 0x43, 0x02, 0, op47, sizeof(op47));
+		off = put_anc(anc, off, f2 + 12, 0x41, 0x07, SDI_ANC_F_CHROMA, scte104, sizeof(scte104));
+	}
+	used[SDI_PLANE_VIDEO] = (size_t)stride * height;
+	used[SDI_PLANE_AUDIO] = (size_t)samples * SDI_AUDIO_FRAME_BYTES;
+	used[SDI_PLANE_ANC] = off;
+	used[SDI_PLANE_META] = 0;
+	used[SDI_PLANE_VBI] = 0;
+}
+
+/* The planes of frame n as cap -o wrote them; returns false when there is no such frame. */
+static bool load_frame(struct plane_mem mem[SDI_NUM_PLANES], size_t used[SDI_NUM_PLANES],
+		       const char *dir, unsigned int n)
+{
+	static const char *names[SDI_NUM_PLANES] = { "video", "audio", "anc", "meta", "vbi" };
+	unsigned int p;
+
+	for (p = 0; p < SDI_NUM_PLANES; p++) {
+		char path[512];
+		FILE *f;
+
+		snprintf(path, sizeof(path), "%s/frame%04u.%s", dir, n, names[p]);
+		f = fopen(path, "rb");
+		if (!f)
+			return false;
+		used[p] = fread(mem[p].p, 1, mem[p].len, f);
+		fclose(f);
+	}
+	used[SDI_PLANE_META] = 0;
+	return true;
+}
+
+static int cmd_play(int argc, char **argv)
+{
+	const char *dev = argv[0], *in_dir = NULL, *name = "1080i50";
+	unsigned int count = 250, gap = 0, i, next = 0, played = 0, in_frames = 0, samples, phase = 0;
+	uint32_t pixfmt = SDI_PIX_FMT_UYVY;
+	struct v4l2_format fmt;
+	struct v4l2_requestbuffers req;
+	struct plane_mem mem[NBUF][SDI_NUM_PLANES];
+	struct v4l2_dv_timings t;
+	enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
+	int fd, opt, ret = 1;
+	uint64_t first_ns = 0, last_ns = 0;
+
+	optind = 1;
+	while ((opt = getopt(argc, argv, "n:f:t:i:g:")) != -1) {
+		switch (opt) {
+		case 'n': count = atoi(optarg); break;
+		case 'f': pixfmt = !strcmp(optarg, "v210") ? SDI_PIX_FMT_V210 : SDI_PIX_FMT_UYVY; break;
+		case 't': name = optarg; break;
+		case 'i': in_dir = optarg; break;
+		case 'g': gap = atoi(optarg); break;
+		default: return 2;
+		}
+	}
+	fd = open(dev, O_RDWR);
+	if (fd < 0) {
+		perror(dev);
+		return 1;
+	}
+	memset(&t, 0, sizeof(t));
+	if (!timings_by_name(fd, name, &t)) {
+		fprintf(stderr, "no such standard: %s\n", name);
+		return 1;
+	}
+	if (xioctl(fd, VIDIOC_S_DV_TIMINGS, &t)) {
+		perror("S_DV_TIMINGS");
+		return 1;
+	}
+	printf("playing: ");
+	print_timings(&t);
+	{
+		const struct v4l2_bt_timings *bt = &t.bt;
+		uint64_t htot = V4L2_DV_BT_FRAME_WIDTH(bt), vtot = V4L2_DV_BT_FRAME_HEIGHT(bt);
+
+		samples = (unsigned int)(48000.0 * htot * vtot / bt->pixelclock + 0.5);
+	}
+	memset(&fmt, 0, sizeof(fmt));
+	fmt.type = type;
+	if (xioctl(fd, VIDIOC_G_FMT, &fmt)) {
+		perror("G_FMT");
+		return 1;
+	}
+	fmt.fmt.pix_mp.pixelformat = pixfmt;
+	if (xioctl(fd, VIDIOC_S_FMT, &fmt)) {
+		perror("S_FMT");
+		return 1;
+	}
+	{
+		char f4[5];
+
+		printf("format: %s %ux%u, planes:", fourcc(fmt.fmt.pix_mp.pixelformat, f4),
+		       fmt.fmt.pix_mp.width, fmt.fmt.pix_mp.height);
+		for (i = 0; i < fmt.fmt.pix_mp.num_planes; i++)
+			printf(" %u", fmt.fmt.pix_mp.plane_fmt[i].sizeimage);
+		printf(", %u audio samples a frame\n", samples);
+	}
+	memset(&req, 0, sizeof(req));
+	req.count = NBUF;
+	req.type = type;
+	req.memory = V4L2_MEMORY_MMAP;
+	if (xioctl(fd, VIDIOC_REQBUFS, &req)) {
+		perror("REQBUFS");
+		return 1;
+	}
+	for (i = 0; i < req.count; i++) {
+		struct v4l2_buffer b;
+		struct v4l2_plane planes[SDI_NUM_PLANES];
+		size_t used[SDI_NUM_PLANES];
+		unsigned int p;
+
+		memset(&b, 0, sizeof(b));
+		memset(planes, 0, sizeof(planes));
+		b.type = type;
+		b.memory = req.memory;
+		b.index = i;
+		b.m.planes = planes;
+		b.length = SDI_NUM_PLANES;
+		if (xioctl(fd, VIDIOC_QUERYBUF, &b)) {
+			perror("QUERYBUF");
+			return 1;
+		}
+		for (p = 0; p < SDI_NUM_PLANES; p++) {
+			mem[i][p].len = planes[p].length;
+			mem[i][p].p = mmap(NULL, planes[p].length, PROT_READ | PROT_WRITE, MAP_SHARED, fd,
+					   planes[p].m.mem_offset);
+			if (mem[i][p].p == MAP_FAILED) {
+				perror("mmap");
+				return 1;
+			}
+		}
+		if (next >= count)
+			continue;
+		if (in_dir) {
+			if (!load_frame(mem[i], used, in_dir, next))
+				break;
+			in_frames++;
+		} else {
+			make_frame(mem[i], used, &fmt.fmt.pix_mp, next, samples, &phase);
+		}
+		for (p = 0; p < SDI_NUM_PLANES; p++)
+			planes[p].bytesused = used[p];
+		b.field = fmt.fmt.pix_mp.field;
+		next++;
+		if (xioctl(fd, VIDIOC_QBUF, &b)) {
+			perror("QBUF");
+			return 1;
+		}
+	}
+	if (xioctl(fd, VIDIOC_STREAMON, &type)) {
+		perror("STREAMON");
+		return 1;
+	}
+	/* the last frame stays on air until STREAMOFF, so count - 1 buffers come back */
+	while (played + 1 < count) {
+		struct v4l2_buffer b;
+		struct v4l2_plane planes[SDI_NUM_PLANES];
+		struct pollfd pfd = { .fd = fd, .events = POLLOUT };
+		size_t used[SDI_NUM_PLANES];
+		uint64_t ns;
+		unsigned int p;
+
+		if (poll(&pfd, 1, 3000) <= 0) {
+			fprintf(stderr, "frame %u: no buffer back within 3 s\n", played);
+			goto out;
+		}
+		memset(&b, 0, sizeof(b));
+		memset(planes, 0, sizeof(planes));
+		b.type = type;
+		b.memory = req.memory;
+		b.m.planes = planes;
+		b.length = SDI_NUM_PLANES;
+		if (xioctl(fd, VIDIOC_DQBUF, &b)) {
+			perror("DQBUF");
+			goto out;
+		}
+		ns = (uint64_t)b.timestamp.tv_sec * 1000000000ull + (uint64_t)b.timestamp.tv_usec * 1000;
+		if (played < 5 || played % 50 == 0 || b.flags & V4L2_BUF_FLAG_ERROR)
+			printf("played %u seq %u dt %.1f ms%s\n", played, b.sequence,
+			       last_ns ? (ns - last_ns) / 1e6 : 0.0, b.flags & V4L2_BUF_FLAG_ERROR ? " ERROR" : "");
+		if (!played)
+			first_ns = ns;
+		last_ns = ns;
+		played++;
+		if (next >= count)
+			continue;
+		if (gap && played % gap == 0)
+			usleep(500000);
+		if (in_dir) {
+			if (!load_frame(mem[b.index], used, in_dir, next % (in_frames ? in_frames : 1)))
+				continue;
+		} else {
+			make_frame(mem[b.index], used, &fmt.fmt.pix_mp, next, samples, &phase);
+		}
+		for (p = 0; p < SDI_NUM_PLANES; p++)
+			planes[p].bytesused = used[p];
+		b.field = fmt.fmt.pix_mp.field;
+		b.flags = 0;
+		next++;
+		if (xioctl(fd, VIDIOC_QBUF, &b)) {
+			perror("QBUF");
+			goto out;
+		}
+	}
+	ret = 0;
+	if (played > 1)
+		printf("%u frames back, %.3f ms a frame\n", played, (last_ns - first_ns) / 1e6 / (played - 1));
+out:
+	xioctl(fd, VIDIOC_STREAMOFF, &type);
+	close(fd);
+	return ret;
+}
+
 int main(int argc, char **argv)
 {
 	if (argc >= 3 && !strcmp(argv[1], "info"))
 		return cmd_info(argv[2]);
 	if (argc >= 3 && !strcmp(argv[1], "cap"))
 		return cmd_cap(argc - 2, argv + 2);
-	fprintf(stderr, "usage: ajav info /dev/videoN | ajav cap /dev/videoN [-n N] [-f uyvy|v210] [-t STD] [-u] [-a] [-A] [-o DIR]\n");
+	if (argc >= 3 && !strcmp(argv[1], "play"))
+		return cmd_play(argc - 2, argv + 2);
+	fprintf(stderr, "usage: ajav info /dev/videoN | ajav cap /dev/videoN [-n N] [-f uyvy|v210] [-t STD] [-u] [-a] [-A] [-o DIR]\n"
+			"       ajav play /dev/videoN [-n N] [-f uyvy|v210] [-t STD] [-i DIR] [-g N]\n");
 	return 2;
 }
