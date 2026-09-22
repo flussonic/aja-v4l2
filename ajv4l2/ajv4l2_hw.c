@@ -255,8 +255,30 @@ int ajv4l2_hw_setup_output(struct ajv4l2_port *port)
 	ntv2WriteRegister(dev->ctx, sdi_out_control_reg[ch], ctl);
 	ajv4l2_hw_set_reference(port);
 	set_free_run_rate(port);
+	ajv4l2_hw_set_vpid(port, 0);
 	AvInterruptControl(dev->device_number, ajv4l2_hw_output_event(ch), 1);
 	return 0;
+}
+
+/*
+ * The payload identifier of an output. The core's output monitor would
+ * derive one from the route on every pass and overwrite whatever a client
+ * asked for, so that is turned off and the identifier is derived once at
+ * start; a frame whose ANC plane carries one replaces it (the register
+ * holds the four wire bytes in reverse order, like the receiver's).
+ */
+void ajv4l2_hw_set_vpid(struct ajv4l2_port *port, u32 vpid)
+{
+	struct ajv4l2_device *dev = port->dev;
+
+	WriteRegister(dev->device_number, kVRegDisableAutoVPID, 1, NO_MASK, NO_SHIFT);
+	if (vpid) {
+		SetSDIOutVPID(dev->ctx, port->channel, vpid, vpid);
+	} else {
+		/* the output's standard and link rate first: the identifier is read off them */
+		SetVideoOutputStandard(dev->ctx, port->channel);
+		SetVPIDOutput(dev->ctx, port->channel);
+	}
 }
 
 /* The output vertical interrupt of a channel: the enum is not contiguous. */
