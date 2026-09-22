@@ -112,7 +112,24 @@ counted. The list of packets ends at `bytesused` or at an all-zero
 header. The card holds a ring of eight frames: a buffer comes back once
 its frame has been on air and the next one has replaced it, so up to
 seven are held; with nothing queued the last frame stays on air and
-`frames_skipped` counts the repeats. Plane 3 and plane 4 are ignored.
+`frames_skipped` counts the repeats, and `v4l2_buffer.sequence` counts
+frames that went on the wire before this one with the repeats included,
+so a gap of n in it is n frames the card sent again. Plane 4 is ignored
+until the SD path is done.
+
+Plane 3 is read. `audio_samples` tells the frame's own audio from the
+padding the client left in plane 1, which the payload size cannot: on the
+59.94 cadence, where the frames are of unequal length, embedding the
+padding walks the embedder away from the picture by a sample a frame. Of
+`flags` the output reads the colour -- `SDI_F_REC2020`, `SDI_F_HLG` and
+`SDI_F_PQ` set the colorimetry and the transfer characteristic of the
+payload identifier for the frames from that one on, through the core's
+own override registers, so nothing else in the identifier changes. Colour
+is stated as a whole or not at all: a frame setting none of the three
+leaves the identifier saying whatever the standard implies, which is what
+every client got before the flags existed. `SDI_F_LEVEL_B` is **not**
+read -- the 3G mapping is the `level_a` setting of the node, and the
+card's converter cannot be turned between frames.
 
 The output's standard, link rate (1.5G, 3G, 6G/12G) and payload
 identifier follow the timings set with `S_DV_TIMINGS`. Next to the

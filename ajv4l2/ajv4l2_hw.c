@@ -257,7 +257,10 @@ int ajv4l2_hw_setup_output(struct ajv4l2_port *port)
 	ntv2WriteRegister(dev->ctx, sdi_out_control_reg[ch], ctl);
 	ajv4l2_hw_set_reference(port);
 	set_free_run_rate(port);
-	ajv4l2_hw_set_vpid(port, 0);
+	port->hdr_stated = false;
+	port->hdr_rec2020 = false;
+	port->hdr_xfer = NTV2_VPID_TC_SDR_TV;
+	ajv4l2_hw_set_hdr(port, false, false, NTV2_VPID_TC_SDR_TV);
 	port->timecode_output = true;
 	ajv4l2_hw_set_timecode_output(port, false);
 	AvInterruptControl(dev->device_number, ajv4l2_hw_output_event(ch), 1);
@@ -283,6 +286,27 @@ void ajv4l2_hw_set_vpid(struct ajv4l2_port *port, u32 vpid)
 		SetVideoOutputStandard(dev->ctx, port->channel);
 		SetVPIDOutput(dev->ctx, port->channel);
 	}
+}
+
+/*
+ * Colorimetry and transfer characteristic of the payload identifier the
+ * card derives. The core keeps an override per output in its virtual
+ * registers and applies it whenever the identifier is derived, so the two
+ * fields are set there and the identifier re-derived; nothing else in it
+ * changes. Cleared again when a frame states no colour, and then the
+ * identifier says whatever the standard implies, as before.
+ */
+void ajv4l2_hw_set_hdr(struct ajv4l2_port *port, bool stated, bool rec2020, u8 xfer)
+{
+	struct ajv4l2_device *dev = port->dev;
+	unsigned int base = kVRegSDIOutVPIDTransferCharacteristics1 + 4 * port->index;
+	u32 over = stated ? kVRegMaskSDIOutVPIDOverride : 0;
+
+	WriteRegister(dev->device_number, base, over | (stated ? xfer : 0), NO_MASK, NO_SHIFT);
+	WriteRegister(dev->device_number, base + 1,
+		      over | (stated && rec2020 ? NTV2_VPID_Color_UHDTV : NTV2_VPID_Color_Rec709),
+		      NO_MASK, NO_SHIFT);
+	ajv4l2_hw_set_vpid(port, 0);
 }
 
 /*
