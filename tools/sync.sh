@@ -1,6 +1,6 @@
 #!/bin/sh
 # Copy the tree to the bench machine and build it there.
-#   tools/sync.sh [user@host] [remote dir]
+#   tools/sync.sh <user@host> [remote dir]
 set -e
 HOST=${1:?usage: tools/sync.sh <user@host> [remote dir]}
 DIR=${2:-/root/aja-v4l2}
