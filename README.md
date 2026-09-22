@@ -29,8 +29,8 @@ The module ships as source for DKMS, so that every kernel the machine
 boots gets its own build. On Debian and Ubuntu:
 
 ```sh
-apt install ./ajv4l2-dkms_0.1.0_all.deb     # or from apt.flussonic.com
-apt install ./ajv4l2-dev_0.1.0_all.deb      # /usr/include/sdi_av.h and ajav.h, for clients
+apt install ./ajv4l2-dkms_26.09.0_all.deb     # or from apt.flussonic.com
+apt install ./ajv4l2-dev_26.09.0_all.deb      # /usr/include/sdi_av.h and ajav.h, for clients
 ```
 
 The package builds the module for the installed kernels (it needs their
