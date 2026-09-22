@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+/* SPDX-License-Identifier: (GPL-2.0 OR MIT) */
+/* Copyright (C) 2026 Max Lapshin <max@flussonic.com> */
 /*
  * The V4L2 layer over the ntv2 driver core. One struct ajv4l2_device per
  * card holds what the core knows about it (its number in the core's

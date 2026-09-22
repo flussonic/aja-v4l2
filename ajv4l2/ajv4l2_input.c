@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+// Copyright (C) 2026 Max Lapshin <max@flussonic.com>
 /*
  * The SDI receiver of a port: whether it is locked, what standard it sees,
  * the payload identifier and the CRC counter; the direction of a

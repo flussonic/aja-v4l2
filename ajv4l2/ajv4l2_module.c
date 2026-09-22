@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+// Copyright (C) 2026 Max Lapshin <max@flussonic.com>
 /*
  * Module identity and the attach/detach calls the driver core makes for
  * every card it probes. The core (vendor/) brings the card up -- BARs,
@@ -218,5 +219,5 @@ void ajv4l2_detach(unsigned int device_number)
 
 MODULE_DESCRIPTION("V4L2 driver for AJA SDI cards");
 MODULE_AUTHOR("Max Lapshin <max@flussonic.com>");
-MODULE_LICENSE("GPL v2");
+MODULE_LICENSE("Dual MIT/GPL");
 MODULE_VERSION(AJV4L2_VERSION);

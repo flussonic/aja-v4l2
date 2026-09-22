@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+// Copyright (C) 2026 Max Lapshin <max@flussonic.com>
 /*
  * ajav: a client of the ajv4l2 capture nodes by the SDI frame contract.
  *

@@ -21,6 +21,7 @@ override_dh_auto_clean:
 override_dh_auto_install:
 	install -d $(SRC)/ajv4l2 $(SRC)/include
 	install -m 0644 Makefile Kbuild $(SRC)/
+	install -m 0644 LICENSE LICENSE.MIT LICENSE.GPL-2.0 $(SRC)/
 	install -m 0644 ajv4l2/*.c ajv4l2/*.h $(SRC)/ajv4l2/
 	install -m 0644 include/sdi_av.h include/ajav.h $(SRC)/include/
 	cp -r vendor $(SRC)/vendor

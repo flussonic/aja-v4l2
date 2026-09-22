@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+// Copyright (C) 2026 Max Lapshin <max@flussonic.com>
 /*
  * The node of a port: the V4L2 ioctls, the vb2 queue and the media
  * entities, for the capture node of an input and the output node of a

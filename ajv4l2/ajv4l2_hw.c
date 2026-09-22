@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+// Copyright (C) 2026 Max Lapshin <max@flussonic.com>
 /*
  * What the frame store, the crosspoints and the audio system of a channel
  * are told before a capture or a playout: the same register writes the
