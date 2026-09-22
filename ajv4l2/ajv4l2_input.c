@@ -86,6 +86,13 @@ void ajv4l2_input_set_direction(struct ajv4l2_port *port, bool receive)
 	ntv2WriteRegister(ctx, kRegSDITransmitControl, reg);
 }
 
+bool ajv4l2_input_is_receiving(struct ajv4l2_port *port)
+{
+	if (!port->dev->bidirectional_sdi || port->index >= 8)
+		return true;
+	return !(ntv2ReadRegister(port->dev->ctx, kRegSDITransmitControl) & xmit_mask[port->index]);
+}
+
 void ajv4l2_input_read(struct ajv4l2_port *port, struct ajv4l2_input_state *st)
 {
 	Ntv2SystemContext *ctx = port->dev->ctx;
