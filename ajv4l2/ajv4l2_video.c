@@ -289,8 +289,10 @@ static int ajv4l2_s_dv_timings(struct file *file, void *fh, struct v4l2_dv_timin
 	m = ajv4l2_mode_for_timings(t);
 	if (!m)
 		return -ERANGE;
-	if (v4l2_match_dv_timings(t, &port->timings, 0, false))
+	if (m == port->mode) {
+		*t = port->timings;
 		return 0;
+	}
 	if (vb2_is_busy(&port->queue))
 		return -EBUSY;
 	ajv4l2_mode_timings(m, &port->timings);

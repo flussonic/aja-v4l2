@@ -117,6 +117,14 @@ bool ajv4l2_mode_matches_timings(const struct ajv4l2_mode *m, const struct v4l2_
 	if (!htot || !vtot)
 		return false;
 	fps1000 = div64_u64(bt->pixelclock * 1000, (u64)htot * vtot);
+	/*
+	 * A 1000/1001 rate comes either as the divided clock or, the way
+	 * v4l2_calc_timeperframe() reads it, as the nominal clock with
+	 * V4L2_DV_FL_REDUCED_FPS; the flag on a whole rate divides it.
+	 */
+	if ((bt->flags & V4L2_DV_FL_REDUCED_FPS) &&
+	    (fps1000 % 1000 <= 10 || fps1000 % 1000 >= 990))
+		fps1000 = div_u64(fps1000 * 1000, 1001);
 	want = div_u64((u64)m->fps_num * 1000, m->fps_den);
 	return fps1000 + 10 >= want && fps1000 <= want + 10;
 }
@@ -143,6 +151,26 @@ void ajv4l2_mode_timings(const struct ajv4l2_mode *m, struct v4l2_dv_timings *t)
 			break;
 		if (ajv4l2_mode_matches_timings(m, p)) {
 			*t = *p;
+			return;
+		}
+	}
+	/*
+	 * A 1000/1001 mode is the preset of the whole rate with
+	 * V4L2_DV_FL_REDUCED_FPS and the nominal clock, the way
+	 * v4l2_calc_timeperframe() reads it.
+	 */
+	for (i = 0; ; i++) {
+		struct v4l2_dv_timings q;
+
+		p = &v4l2_dv_timings_presets[i];
+		if (!p->bt.width)
+			break;
+		if (!(p->bt.flags & V4L2_DV_FL_CAN_REDUCE_FPS))
+			continue;
+		q = *p;
+		q.bt.flags |= V4L2_DV_FL_REDUCED_FPS;
+		if (ajv4l2_mode_matches_timings(m, &q)) {
+			*t = q;
 			return;
 		}
 	}
