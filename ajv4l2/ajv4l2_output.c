@@ -214,20 +214,78 @@ static unsigned int timecode_index(unsigned int ch)
 	return ch < 8 ? idx[ch] : NTV2_TCINDEX_SDI1;
 }
 
+/*
+ * The frame's own metadata, or NULL: a plane too short, or carrying
+ * somebody else's magic or a version we do not know, is not read at all
+ * and the frame goes out without it.
+ */
+static const struct sdi_meta *frame_meta(struct vb2_buffer *vb)
+{
+	const struct sdi_meta *m = vb2_plane_vaddr(vb, SDI_PLANE_META);
+
+	if (!m || vb2_get_plane_payload(vb, SDI_PLANE_META) < sizeof(*m))
+		return NULL;
+	if (m->magic != SDI_META_MAGIC || m->version != SDI_META_VERSION)
+		return NULL;
+	return m;
+}
+
+/*
+ * Colour of one frame. Stated as a whole or not at all: a frame setting
+ * none of the three flags is not claiming Rec. 709 SDR, it is saying
+ * nothing, and then the identifier says whatever the standard implies --
+ * which is what every client of this card got before the flags existed.
+ *
+ * SDI_F_LEVEL_B is not read: the 3G mapping is the level_a setting of the
+ * node, and the card's converter cannot be turned between frames.
+ */
+static void frame_colour(struct ajv4l2_port *port, const struct sdi_meta *meta)
+{
+	u32 flags = meta ? meta->flags : 0;
+	bool stated = flags & (SDI_F_REC2020 | SDI_F_HLG | SDI_F_PQ);
+	bool rec2020 = stated && (flags & SDI_F_REC2020);
+	u8 xfer = !stated ? NTV2_VPID_TC_SDR_TV :
+		  (flags & SDI_F_PQ) ? NTV2_VPID_TC_PQ :
+		  (flags & SDI_F_HLG) ? NTV2_VPID_TC_HLG : NTV2_VPID_TC_SDR_TV;
+
+	if (stated == port->hdr_stated && rec2020 == port->hdr_rec2020 && xfer == port->hdr_xfer)
+		return;
+	ajv4l2_hw_set_hdr(port, stated, rec2020, xfer);
+	port->hdr_stated = stated;
+	port->hdr_rec2020 = rec2020;
+	port->hdr_xfer = xfer;
+}
+
 /* One buffer into the next free frame of the ring. */
 static int transfer_frame(struct ajv4l2_port *port, struct ajv4l2_buffer *buf,
 			  AUTOCIRCULATE_TRANSFER *xfer)
 {
 	struct ajv4l2_device *dev = port->dev;
 	struct vb2_buffer *vb = &buf->vb.vb2_buf;
+	const struct sdi_meta *meta = frame_meta(vb);
 	struct v4l2_pix_format_mplane pix;
 	u32 audio_bytes, anc_bytes[2], dropped, vpid;
 	NTV2_RP188 *tc = port->timecodes;
 	int ret;
 
 	ajv4l2_video_geometry(port, port->pixfmt, port->mode, &pix);
+	frame_colour(port, meta);
 	audio_bytes = vb2_get_plane_payload(vb, SDI_PLANE_AUDIO);
 	audio_bytes -= audio_bytes % SDI_AUDIO_FRAME_BYTES;
+	/*
+	 * The plane may be longer than the frame's audio: what the metadata
+	 * declares is the frame's own, the rest is padding the client left
+	 * there. Embedding the padding would put silence on the wire and, on
+	 * the 59.94 cadence where the frames are of unequal length, walk the
+	 * embedder away from the picture by a sample a frame.
+	 */
+	if (meta) {
+		u32 declared = (meta->audio_samples[0] + meta->audio_samples[1]) *
+			       SDI_AUDIO_FRAME_BYTES;
+
+		if (declared && declared < audio_bytes)
+			audio_bytes = declared;
+	}
 	memset(tc, 0xff, sizeof(port->timecodes));
 	anc_build(port, vb2_plane_vaddr(vb, SDI_PLANE_ANC), vb2_get_plane_payload(vb, SDI_PLANE_ANC),
 		  anc_bytes, &dropped, &vpid, &tc[timecode_index(port->index)]);
@@ -288,7 +346,14 @@ static void complete_played(struct ajv4l2_port *port, unsigned int level)
 	while (!list_empty(&done)) {
 		buf = list_first_entry(&done, struct ajv4l2_buffer, list);
 		list_del(&buf->list);
-		buf->vb.sequence = port->sequence++;
+		/*
+		 * Frames that went on the wire before this one, repeats
+		 * included, as the contract requires: a gap of n in the
+		 * sequence is n frames the card sent again. Counting only the
+		 * client's own buffers would leave no gap ever, and a client
+		 * watching for one would never see the card repeating.
+		 */
+		buf->vb.sequence = port->frames + port->frames_skipped;
 		buf->vb.vb2_buf.timestamp = ktime_get_ns();
 		port->frames++;
 		vb2_buffer_done(&buf->vb.vb2_buf, VB2_BUF_STATE_DONE);
