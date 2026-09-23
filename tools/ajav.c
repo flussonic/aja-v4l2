@@ -70,11 +70,26 @@ static const char *fourcc(uint32_t f, char buf[5])
 	return buf;
 }
 
+/*
+ * Frames a second of the timings: REDUCED_FPS on a whole rate at the nominal
+ * clock is that rate times 1000/1001, the way v4l2_calc_timeperframe() reads
+ * it; a clock already divided says so by itself.
+ */
+static double bt_frame_rate(const struct v4l2_bt_timings *bt)
+{
+	uint64_t htot = V4L2_DV_BT_FRAME_WIDTH(bt), vtot = V4L2_DV_BT_FRAME_HEIGHT(bt);
+	double fps = htot && vtot ? (double)bt->pixelclock / (htot * vtot) : 0;
+
+	if ((bt->flags & V4L2_DV_FL_REDUCED_FPS) && fabs(fps - round(fps)) < 0.01)
+		fps = fps * 1000 / 1001;
+	return fps;
+}
+
 static void print_timings(const struct v4l2_dv_timings *t)
 {
 	const struct v4l2_bt_timings *bt = &t->bt;
-	uint64_t htot = V4L2_DV_BT_FRAME_WIDTH(bt), vtot = V4L2_DV_BT_FRAME_HEIGHT(bt);
-	double fps = htot && vtot ? (double)bt->pixelclock / (htot * vtot) : 0;
+	uint64_t vtot = V4L2_DV_BT_FRAME_HEIGHT(bt);
+	double fps = bt_frame_rate(bt);
 
 	printf("%ux%u%s %.3f fps (%llu total lines)\n", bt->width, bt->height,
 	       bt->interlaced ? "i" : "p", fps * (bt->interlaced ? 2 : 1), (unsigned long long)vtot);
@@ -119,7 +134,6 @@ static bool timings_by_name(int fd, const char *name, struct v4l2_dv_timings *ou
 
 	for (e.index = 0; ; e.index++) {
 		const struct v4l2_bt_timings *bt;
-		uint64_t htot, vtot;
 		double fps;
 		char buf[32];
 
@@ -127,9 +141,7 @@ static bool timings_by_name(int fd, const char *name, struct v4l2_dv_timings *ou
 		if (xioctl(fd, VIDIOC_ENUM_DV_TIMINGS, &e))
 			return false;
 		bt = &e.timings.bt;
-		htot = V4L2_DV_BT_FRAME_WIDTH(bt);
-		vtot = V4L2_DV_BT_FRAME_HEIGHT(bt);
-		fps = (double)bt->pixelclock / (htot * vtot) * (bt->interlaced ? 2 : 1);
+		fps = bt_frame_rate(bt) * (bt->interlaced ? 2 : 1);
 		snprintf(buf, sizeof(buf), "%u%s%g", bt->height == 486 ? 525 : bt->height == 576 ? 625 : bt->height,
 			 bt->interlaced ? "i" : "p", fps + 0.005 > (int)fps + 1 ? (double)((int)fps + 1) : ((int)(fps * 100 + 0.5)) / 100.0);
 		if (!strcmp(buf, name)) {
@@ -597,9 +609,7 @@ static int cmd_play(int argc, char **argv)
 	print_timings(&t);
 	{
 		const struct v4l2_bt_timings *bt = &t.bt;
-		uint64_t htot = V4L2_DV_BT_FRAME_WIDTH(bt), vtot = V4L2_DV_BT_FRAME_HEIGHT(bt);
-
-		fps = (double)bt->pixelclock / (htot * vtot);
+		fps = bt_frame_rate(bt);
 	}
 	memset(&fmt, 0, sizeof(fmt));
 	fmt.type = type;
