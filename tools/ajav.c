@@ -18,10 +18,15 @@
  *     -t NAME     timings by name (default 1080i50)
  *     -i DIR      play the planes written by cap -o, in a loop
  *     -g N        leave the queue empty for half a second every N frames
+ *     -F FLAGS    write the metadata plane with these SDI_F_* flags and the
+ *                 audio of each field (0x08 Rec.2020, 0x10 HLG, 0x20 PQ)
+ *     -L N        the flags on N frames, none on the next N, and so on
+ *     -P PAD      append PAD constant samples the metadata does not declare
  *   Without -i the frames are colour bars with a moving marker, a 1 kHz
  *   and a 2 kHz tone on channels 1 and 2, OP-47 with the frame number,
  *   SCTE-104 and an RP188 timecode counting the frames; the payload
- *   identifier the card adds.
+ *   identifier the card adds. Audio follows the frame rate, on the
+ *   1000/1001 rates the 1602/1601 (29.97) or 801/800 (59.94) cadence.
  */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -65,11 +70,26 @@ static const char *fourcc(uint32_t f, char buf[5])
 	return buf;
 }
 
+/*
+ * Frames a second of the timings: REDUCED_FPS on a whole rate at the nominal
+ * clock is that rate times 1000/1001, the way v4l2_calc_timeperframe() reads
+ * it; a clock already divided says so by itself.
+ */
+static double bt_frame_rate(const struct v4l2_bt_timings *bt)
+{
+	uint64_t htot = V4L2_DV_BT_FRAME_WIDTH(bt), vtot = V4L2_DV_BT_FRAME_HEIGHT(bt);
+	double fps = htot && vtot ? (double)bt->pixelclock / (htot * vtot) : 0;
+
+	if ((bt->flags & V4L2_DV_FL_REDUCED_FPS) && fabs(fps - round(fps)) < 0.01)
+		fps = fps * 1000 / 1001;
+	return fps;
+}
+
 static void print_timings(const struct v4l2_dv_timings *t)
 {
 	const struct v4l2_bt_timings *bt = &t->bt;
-	uint64_t htot = V4L2_DV_BT_FRAME_WIDTH(bt), vtot = V4L2_DV_BT_FRAME_HEIGHT(bt);
-	double fps = htot && vtot ? (double)bt->pixelclock / (htot * vtot) : 0;
+	uint64_t vtot = V4L2_DV_BT_FRAME_HEIGHT(bt);
+	double fps = bt_frame_rate(bt);
 
 	printf("%ux%u%s %.3f fps (%llu total lines)\n", bt->width, bt->height,
 	       bt->interlaced ? "i" : "p", fps * (bt->interlaced ? 2 : 1), (unsigned long long)vtot);
@@ -114,7 +134,6 @@ static bool timings_by_name(int fd, const char *name, struct v4l2_dv_timings *ou
 
 	for (e.index = 0; ; e.index++) {
 		const struct v4l2_bt_timings *bt;
-		uint64_t htot, vtot;
 		double fps;
 		char buf[32];
 
@@ -122,9 +141,7 @@ static bool timings_by_name(int fd, const char *name, struct v4l2_dv_timings *ou
 		if (xioctl(fd, VIDIOC_ENUM_DV_TIMINGS, &e))
 			return false;
 		bt = &e.timings.bt;
-		htot = V4L2_DV_BT_FRAME_WIDTH(bt);
-		vtot = V4L2_DV_BT_FRAME_HEIGHT(bt);
-		fps = (double)bt->pixelclock / (htot * vtot) * (bt->interlaced ? 2 : 1);
+		fps = bt_frame_rate(bt) * (bt->interlaced ? 2 : 1);
 		snprintf(buf, sizeof(buf), "%u%s%g", bt->height == 486 ? 525 : bt->height == 576 ? 625 : bt->height,
 			 bt->interlaced ? "i" : "p", fps + 0.005 > (int)fps + 1 ? (double)((int)fps + 1) : ((int)(fps * 100 + 0.5)) / 100.0);
 		if (!strcmp(buf, name)) {
@@ -422,6 +439,36 @@ static size_t put_anc(uint8_t *plane, size_t off, unsigned int line, uint8_t did
 	return off + SDI_ANC_PACKET_BYTES(dc);
 }
 
+/*
+ * What play writes into the frame besides the picture: the metadata plane
+ * (magic, version, flags and the audio of each field) when meta is set, and
+ * padding samples after the frame's own audio that the metadata does not
+ * declare -- a constant a receiver tells from the tone at once.
+ */
+static struct {
+	bool meta;
+	uint32_t flags;
+	unsigned int alternate;	/* flags on frames 0..N-1, none on N..2N-1, ... */
+	unsigned int pad;
+} play_opt;
+
+#define PAD_SAMPLE	0x40000000
+
+/*
+ * Samples of frame n at 48 kHz: 48000 / rate, on the 1000/1001 rates the
+ * running count rounded down, which is the 1602/1601 (29.97) and 801/800
+ * (59.94) cadence a receiver expects.
+ */
+static unsigned int frame_samples(double fps, unsigned int n)
+{
+	unsigned int rate = (unsigned int)(fps + 0.5);
+	uint64_t num = 48000ull * 1001, den = (uint64_t)rate * 1000;
+
+	if (fps > rate - 0.02 && fps < rate + 0.02)
+		return (unsigned int)(48000.0 / fps + 0.5);
+	return (unsigned int)(num * (n + 1) / den - num * n / den);
+}
+
 /* The planes of one synthetic frame; returns the bytes used of each. */
 static void make_frame(struct plane_mem mem[SDI_NUM_PLANES], size_t used[SDI_NUM_PLANES],
 		       const struct v4l2_pix_format_mplane *pix, unsigned int frame,
@@ -459,6 +506,13 @@ static void make_frame(struct plane_mem mem[SDI_NUM_PLANES], size_t used[SDI_NUM
 		s[0] = (int32_t)(sin(2 * M_PI * 1000.0 * *phase / 48000) * 0x3fffff) * 256;
 		s[1] = (int32_t)(sin(2 * M_PI * 2000.0 * *phase / 48000) * 0x3fffff) * 256;
 	}
+	for (i = samples; i < samples + play_opt.pad; i++) {
+		int32_t *s = audio + (size_t)i * SDI_AUDIO_CHANNELS;
+		unsigned int k;
+
+		for (k = 0; k < SDI_AUDIO_CHANNELS; k++)
+			s[k] = PAD_SAMPLE;
+	}
 	op47[4] = frame >> 24; op47[5] = frame >> 16; op47[6] = frame >> 8; op47[7] = frame;
 	off = put_anc(anc, off, 9, 0x60, 0x60, SDI_ANC_F_HANC, rp188, sizeof(rp188));
 	off = put_anc(anc, off, 12, 0x43, 0x02, 0, op47, sizeof(op47));
@@ -469,10 +523,21 @@ static void make_frame(struct plane_mem mem[SDI_NUM_PLANES], size_t used[SDI_NUM
 		off = put_anc(anc, off, f2 + 12, 0x41, 0x07, SDI_ANC_F_CHROMA, scte104, sizeof(scte104));
 	}
 	used[SDI_PLANE_VIDEO] = (size_t)stride * height;
-	used[SDI_PLANE_AUDIO] = (size_t)samples * SDI_AUDIO_FRAME_BYTES;
+	used[SDI_PLANE_AUDIO] = (size_t)(samples + play_opt.pad) * SDI_AUDIO_FRAME_BYTES;
 	used[SDI_PLANE_ANC] = off;
-	used[SDI_PLANE_META] = 0;
+	/* vb2 reads a zero bytesused on output as the whole plane: no metadata is no magic */
+	memset(mem[SDI_PLANE_META].p, 0, SDI_META_SIZE);
+	used[SDI_PLANE_META] = SDI_META_SIZE;
 	used[SDI_PLANE_VBI] = 0;
+	if (play_opt.meta) {
+		struct sdi_meta *m = mem[SDI_PLANE_META].p;
+
+		m->magic = SDI_META_MAGIC;
+		m->version = SDI_META_VERSION;
+		m->flags = play_opt.alternate && (frame / play_opt.alternate) % 2 ? 0 : play_opt.flags;
+		m->audio_samples[0] = interlaced ? (samples + 1) / 2 : samples;
+		m->audio_samples[1] = interlaced ? samples / 2 : 0;
+	}
 }
 
 /* The planes of frame n as cap -o wrote them; returns false when there is no such frame. */
@@ -500,7 +565,8 @@ static bool load_frame(struct plane_mem mem[SDI_NUM_PLANES], size_t used[SDI_NUM
 static int cmd_play(int argc, char **argv)
 {
 	const char *dev = argv[0], *in_dir = NULL, *name = "1080i50";
-	unsigned int count = 250, gap = 0, i, next = 0, played = 0, in_frames = 0, samples, phase = 0;
+	unsigned int count = 250, gap = 0, i, next = 0, played = 0, in_frames = 0, phase = 0;
+	double fps;
 	uint32_t pixfmt = SDI_PIX_FMT_UYVY;
 	struct v4l2_format fmt;
 	struct v4l2_requestbuffers req;
@@ -511,9 +577,13 @@ static int cmd_play(int argc, char **argv)
 	uint64_t first_ns = 0, last_ns = 0;
 
 	optind = 1;
-	while ((opt = getopt(argc, argv, "n:f:t:i:g:")) != -1) {
+	memset(&play_opt, 0, sizeof(play_opt));
+	while ((opt = getopt(argc, argv, "n:f:t:i:g:F:L:P:")) != -1) {
 		switch (opt) {
 		case 'n': count = atoi(optarg); break;
+		case 'F': play_opt.meta = true; play_opt.flags = strtoul(optarg, NULL, 0); break;
+		case 'L': play_opt.alternate = atoi(optarg); break;
+		case 'P': play_opt.pad = atoi(optarg); break;
 		case 'f': pixfmt = !strcmp(optarg, "v210") ? SDI_PIX_FMT_V210 : SDI_PIX_FMT_UYVY; break;
 		case 't': name = optarg; break;
 		case 'i': in_dir = optarg; break;
@@ -539,9 +609,7 @@ static int cmd_play(int argc, char **argv)
 	print_timings(&t);
 	{
 		const struct v4l2_bt_timings *bt = &t.bt;
-		uint64_t htot = V4L2_DV_BT_FRAME_WIDTH(bt), vtot = V4L2_DV_BT_FRAME_HEIGHT(bt);
-
-		samples = (unsigned int)(48000.0 * htot * vtot / bt->pixelclock + 0.5);
+		fps = bt_frame_rate(bt);
 	}
 	memset(&fmt, 0, sizeof(fmt));
 	fmt.type = type;
@@ -561,7 +629,9 @@ static int cmd_play(int argc, char **argv)
 		       fmt.fmt.pix_mp.width, fmt.fmt.pix_mp.height);
 		for (i = 0; i < fmt.fmt.pix_mp.num_planes; i++)
 			printf(" %u", fmt.fmt.pix_mp.plane_fmt[i].sizeimage);
-		printf(", %u audio samples a frame\n", samples);
+		printf(", %u audio samples in the first frame, %u padding, %s, flags 0x%x\n",
+		       frame_samples(fps, 0), play_opt.pad, play_opt.meta ? "metadata" : "no metadata",
+		       play_opt.flags);
 	}
 	memset(&req, 0, sizeof(req));
 	req.count = NBUF;
@@ -604,7 +674,7 @@ static int cmd_play(int argc, char **argv)
 				break;
 			in_frames++;
 		} else {
-			make_frame(mem[i], used, &fmt.fmt.pix_mp, next, samples, &phase);
+			make_frame(mem[i], used, &fmt.fmt.pix_mp, next, frame_samples(fps, next), &phase);
 		}
 		for (p = 0; p < SDI_NUM_PLANES; p++)
 			planes[p].bytesused = used[p];
@@ -658,7 +728,7 @@ static int cmd_play(int argc, char **argv)
 			if (!load_frame(mem[b.index], used, in_dir, next % (in_frames ? in_frames : 1)))
 				continue;
 		} else {
-			make_frame(mem[b.index], used, &fmt.fmt.pix_mp, next, samples, &phase);
+			make_frame(mem[b.index], used, &fmt.fmt.pix_mp, next, frame_samples(fps, next), &phase);
 		}
 		for (p = 0; p < SDI_NUM_PLANES; p++)
 			planes[p].bytesused = used[p];
@@ -688,6 +758,6 @@ int main(int argc, char **argv)
 	if (argc >= 3 && !strcmp(argv[1], "play"))
 		return cmd_play(argc - 2, argv + 2);
 	fprintf(stderr, "usage: ajav info /dev/videoN | ajav cap /dev/videoN [-n N] [-f uyvy|v210] [-t STD] [-u] [-a] [-A] [-o DIR]\n"
-			"       ajav play /dev/videoN [-n N] [-f uyvy|v210] [-t STD] [-i DIR] [-g N]\n");
+			"       ajav play /dev/videoN [-n N] [-f uyvy|v210] [-t STD] [-i DIR] [-g N] [-F FLAGS] [-L N] [-P PAD]\n");
 	return 2;
 }

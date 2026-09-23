@@ -128,9 +128,7 @@ static int ajv4l2_start_streaming(struct vb2_queue *q, unsigned int count)
 
 	port->sequence = 0;
 	port->frames = port->frames_skipped = port->no_buffer = 0;
-	port->resyncs = port->no_sync = port->events_missed = 0;
-	port->crc_errors = port->dma_errors = port->restarts = 0;
-	port->anc_dropped = port->audio_dropped = 0;
+	port->crc_errors = port->dma_errors = port->anc_dropped = 0;
 	ret = port->output ? ajv4l2_output_start(port) : ajv4l2_capture_start(port);
 	if (ret)
 		ajv4l2_return_buffers(port, VB2_BUF_STATE_QUEUED);
@@ -291,8 +289,10 @@ static int ajv4l2_s_dv_timings(struct file *file, void *fh, struct v4l2_dv_timin
 	m = ajv4l2_mode_for_timings(t);
 	if (!m)
 		return -ERANGE;
-	if (v4l2_match_dv_timings(t, &port->timings, 0, false))
+	if (m == port->mode) {
+		*t = port->timings;
 		return 0;
+	}
 	if (vb2_is_busy(&port->queue))
 		return -EBUSY;
 	ajv4l2_mode_timings(m, &port->timings);
@@ -358,10 +358,9 @@ static int ajv4l2_log_status(struct file *file, void *fh)
 			  ajv4l2_input_is_receiving(port) ? "receiving" : "transmitting", port->mode->name,
 			  port->streaming ? "streaming" : "idle");
 	}
-	v4l2_info(&port->dev->v4l2_dev, "%s: frames %llu skipped %llu no_buffer %llu resyncs %llu no_sync %llu events_missed %llu crc_errors %llu dma_errors %llu restarts %llu anc_dropped %llu audio_dropped %llu\n",
+	v4l2_info(&port->dev->v4l2_dev, "%s: frames %llu skipped %llu no_buffer %llu crc_errors %llu dma_errors %llu anc_dropped %llu\n",
 		  port->vdev.name, port->frames, port->frames_skipped, port->no_buffer,
-		  port->resyncs, port->no_sync, port->events_missed, port->crc_errors,
-		  port->dma_errors, port->restarts, port->anc_dropped, port->audio_dropped);
+		  port->crc_errors, port->dma_errors, port->anc_dropped);
 	return 0;
 }
 

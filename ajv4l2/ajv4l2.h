@@ -149,11 +149,14 @@ struct ajv4l2_port {
 	/* output settings, sysfs */
 	bool level_a;			/* 3G as SMPTE 425 level A, else level B */
 	bool reference;			/* lock to the reference input while it carries a signal */
+	bool hdr_stated;		/* a frame has stated its colour: the overrides are on */
+	bool hdr_rec2020;		/* what those overrides currently say */
+	u8 hdr_xfer;			/* NTV2VPIDTransferCharacteristics */
 
 	/* counters since STREAMON, sysfs */
-	u64 frames, frames_skipped, no_buffer, resyncs, no_sync, events_missed;
-	u64 crc_errors, dma_errors, restarts;
-	u64 anc_dropped, audio_dropped;
+	u64 frames, frames_skipped, no_buffer;
+	u64 crc_errors, dma_errors;
+	u64 anc_dropped;
 };
 
 struct ajv4l2_device {

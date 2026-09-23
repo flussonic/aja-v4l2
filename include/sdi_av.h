@@ -14,6 +14,10 @@
  * both with the same five planes and the same layout of each; ENUM_FMT says
  * which pixel formats a node offers, G_DV_TIMINGS the geometry of the frame,
  * ENUMINPUT.status and V4L2_EVENT_SOURCE_CHANGE the state of the input.
+ * A 1000/1001 rate is the CEA-861 timings of the whole rate with
+ * V4L2_DV_FL_REDUCED_FPS and the nominal pixel clock, the way
+ * v4l2_calc_timeperframe() reads it; a driver also takes the clock already
+ * divided by 1.001, and flags it the same.
  */
 #ifndef SDI_AV_H
 #define SDI_AV_H
@@ -76,10 +80,13 @@
  * everything in [0]). bytesused = samples per channel * SDI_AUDIO_FRAME_BYTES.
  *
  * Output: the client puts the same layout; the card embeds the sample and
- * the U/C bits, Z and P it sets itself. A field holds 48000 / field rate
- * samples (+1 on the 59.94 cadence): what does not fit is dropped, and
- * audio_samples that do not add up to bytesused (zeros included) are halved
- * by the driver.
+ * the U/C bits, Z and P it sets itself. The audio of the frame is what
+ * audio_samples in the metadata counts, field by field: samples in
+ * bytesused beyond that count are padding and are not played. Without
+ * metadata, with audio_samples of zero, or counting more than bytesused
+ * holds, the driver takes bytesused as the audio and halves it between the
+ * fields. A field holds 48000 / field rate samples, rounded up on the
+ * 1000/1001 rates: what does not fit is dropped.
  */
 #define SDI_AUDIO_CHANNELS	16
 #define SDI_AUDIO_SAMPLE_BYTES	4
@@ -221,12 +228,20 @@ static inline __u32 sdi_vbi_line(__u32 total_lines, __u32 row)
  * own puts 0 in hw_timestamp; a card that does not check line CRCs puts 0 in
  * crc_errors.
  *
- * Output: the client fills magic, version and audio_samples, the rest zero
- * (vendor tail included, unless the driver documents a block it takes); a
- * plane with another magic or version is not read and the frame goes
- * without it (the audio is halved between the fields). On return the driver
- * fills hw_timestamp with the card time at which it took the frame, when the
- * card has a clock.
+ * Output: the client fills magic, version, flags and audio_samples, the rest
+ * zero (vendor tail included, unless the driver documents a block it takes);
+ * a plane with another magic or version is not read and the frame goes
+ * without it (the audio is halved between the fields). Of the flags a
+ * playout node takes SDI_F_REC2020, SDI_F_HLG, SDI_F_PQ and SDI_F_LEVEL_B
+ * as a statement about that one frame; the rest tell what was received and
+ * mean nothing on the way out. A frame setting none of the three colour
+ * flags goes out with the colorimetry and the transfer characteristic the
+ * node itself is set to, and one without SDI_F_LEVEL_B with the 3G mapping
+ * the node itself is set to, so a client that states nothing changes
+ * nothing. A card that cannot change one of them between frames keeps its
+ * own setting and says so in the driver's documentation. On return the
+ * driver fills hw_timestamp with the card time at which it took the frame,
+ * when the card has a clock.
  */
 #define SDI_META_MAGIC		v4l2_fourcc('S', 'D', 'I', '0') /* an SDI frame by this contract */
 #define SDI_META_VERSION	4
@@ -236,9 +251,16 @@ static inline __u32 sdi_vbi_line(__u32 total_lines, __u32 row)
 #define SDI_F_LEVEL_B		(1u << 0) /* 3G input carried as SMPTE 425 level B (two streams in one link), by VPID */
 #define SDI_F_PSF		(1u << 1) /* progressive segmented frame (SMPTE RP 211): two fields of one instant, not to be deinterlaced; by VPID */
 #define SDI_F_RGB		(1u << 2) /* the source carried RGB 4:4:4 (SMPTE 372M/425M), not Y'CbCr 4:2:2; by VPID */
-#define SDI_F_REC2020		(1u << 3) /* colorimetry Rec. 2020 (ST 352 byte 3 bits 5..4 = 2); clear: Rec. 709 or not stated */
-#define SDI_F_HLG		(1u << 4) /* transfer characteristic HLG (ST 352 byte 4 bits 5..4 = 1) */
-#define SDI_F_PQ		(1u << 5) /* transfer characteristic PQ, ST 2084 (ST 352 byte 4 bits 5..4 = 2); HLG and PQ never together, neither: SDR */
+#define SDI_F_REC2020		(1u << 3) /* colorimetry Rec. 2020 (ST 352 colorimetry code 2, see below); clear: Rec. 709 or not stated */
+#define SDI_F_HLG		(1u << 4) /* transfer characteristic HLG (ST 352 byte 2 bits 5..4 = 1) */
+#define SDI_F_PQ		(1u << 5) /* transfer characteristic PQ, ST 2084 (ST 352 byte 2 bits 5..4 = 2); HLG and PQ never together, neither: SDR */
+/*
+ * Where ST 352 keeps the colorimetry code depends on the standard in byte 1:
+ * in the 1080-line 1.5G standards and the dual links built from them (0x85,
+ * 0x87, 0x8A, 0x96, 0x98) it is split over byte 3 bit 7 (high) and bit 4
+ * (low), because byte 3 bit 5 is the 16:9 flag there; in every other
+ * standard it is byte 3 bits 5..4, and bit 7 is the 16:9 flag.
+ */
 
 struct sdi_meta {
 	__u32 magic;		/* 0:   SDI_META_MAGIC */

@@ -207,7 +207,12 @@ static u32 anc_parse(const u8 *in, u32 in_bytes, u8 *out, u32 out_bytes, bool fi
 	return op;
 }
 
-static bool anc_has_packet(const u8 *anc, u32 bytes, u8 did, u8 sdid)
+/*
+ * The payload identifier the frame itself carried: the first intact
+ * DID 0x41 SDID 0x01 packet of its ancillary data, field 1 first, as the
+ * receiver register holds it (byte 1 in bits 31..24).
+ */
+static bool anc_find_vpid(const u8 *anc, u32 bytes, u32 *vpid)
 {
 	u32 off = 0;
 
@@ -217,8 +222,12 @@ static bool anc_has_packet(const u8 *anc, u32 bytes, u8 did, u8 sdid)
 
 		if (off + len > bytes)
 			break;
-		if (pkt->did == did && pkt->sdid == sdid)
+		if (pkt->did == 0x41 && pkt->sdid == 0x01 && pkt->data_count >= 4 &&
+		    !(pkt->flags & SDI_ANC_F_CS_ERROR)) {
+			*vpid = (pkt->udw[0] & 0xff) << 24 | (pkt->udw[1] & 0xff) << 16 |
+				(pkt->udw[2] & 0xff) << 8 | (pkt->udw[3] & 0xff);
 			return true;
+		}
 		off += len;
 	}
 	return false;
@@ -404,10 +413,25 @@ static void finish_buffer(struct ajv4l2_port *port, struct ajv4l2_buffer *buf,
 
 		anc_bytes = anc_parse(port->anc[0].buf, min_t(u32, ts->acAncTransferSize, AJV4L2_ANC_FIELD_BYTES),
 				      anc, room, false);
-		anc_bytes += anc_parse(port->anc[1].buf,
-				       min_t(u32, ts->acAncField2TransferSize, AJV4L2_ANC_FIELD_BYTES),
-				       anc + anc_bytes, room - anc_bytes, true);
-		if (st.vpid_a_valid && !anc_has_packet(anc, anc_bytes, 0x41, 0x01))
+		/*
+		 * A progressive frame has no second field: whatever the field 2
+		 * region holds is left from an interlaced standard played before.
+		 */
+		if (port->mode->flags & (AJV4L2_MODE_F_INTERLACED | AJV4L2_MODE_F_PSF |
+					 AJV4L2_MODE_F_LEVEL_B))
+			anc_bytes += anc_parse(port->anc[1].buf,
+					       min_t(u32, ts->acAncField2TransferSize,
+						     AJV4L2_ANC_FIELD_BYTES),
+					       anc + anc_bytes, room - anc_bytes, true);
+		/*
+		 * The flags follow the frame's own payload identifier: the receiver
+		 * register is read when the frame is transferred, by which time it
+		 * already holds the identifier of the next frame. The register is
+		 * the fallback when the extractor brought none.
+		 */
+		if (anc_find_vpid(anc, anc_bytes, &st.vpid_a))
+			st.vpid_a_valid = true;
+		else if (st.vpid_a_valid)
 			anc_bytes = anc_put_vpid(anc, anc_bytes, room, st.vpid_a,
 						 port->mode->total_lines);
 	}
