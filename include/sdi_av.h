@@ -244,9 +244,16 @@ static inline __u32 sdi_vbi_line(__u32 total_lines, __u32 row)
 #define SDI_F_LEVEL_B		(1u << 0) /* 3G input carried as SMPTE 425 level B (two streams in one link), by VPID */
 #define SDI_F_PSF		(1u << 1) /* progressive segmented frame (SMPTE RP 211): two fields of one instant, not to be deinterlaced; by VPID */
 #define SDI_F_RGB		(1u << 2) /* the source carried RGB 4:4:4 (SMPTE 372M/425M), not Y'CbCr 4:2:2; by VPID */
-#define SDI_F_REC2020		(1u << 3) /* colorimetry Rec. 2020 (ST 352 byte 3 bits 5..4 = 2); clear: Rec. 709 or not stated */
-#define SDI_F_HLG		(1u << 4) /* transfer characteristic HLG (ST 352 byte 4 bits 5..4 = 1) */
-#define SDI_F_PQ		(1u << 5) /* transfer characteristic PQ, ST 2084 (ST 352 byte 4 bits 5..4 = 2); HLG and PQ never together, neither: SDR */
+#define SDI_F_REC2020		(1u << 3) /* colorimetry Rec. 2020 (ST 352 colorimetry code 2, see below); clear: Rec. 709 or not stated */
+#define SDI_F_HLG		(1u << 4) /* transfer characteristic HLG (ST 352 byte 2 bits 5..4 = 1) */
+#define SDI_F_PQ		(1u << 5) /* transfer characteristic PQ, ST 2084 (ST 352 byte 2 bits 5..4 = 2); HLG and PQ never together, neither: SDR */
+/*
+ * Where ST 352 keeps the colorimetry code depends on the standard in byte 1:
+ * in the 1080-line 1.5G standards and the dual links built from them (0x85,
+ * 0x87, 0x8A, 0x96, 0x98) it is split over byte 3 bit 7 (high) and bit 4
+ * (low), because byte 3 bit 5 is the 16:9 flag there; in every other
+ * standard it is byte 3 bits 5..4, and bit 7 is the 16:9 flag.
+ */
 
 struct sdi_meta {
 	__u32 magic;		/* 0:   SDI_META_MAGIC */
