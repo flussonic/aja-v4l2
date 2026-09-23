@@ -14,6 +14,10 @@
  * both with the same five planes and the same layout of each; ENUM_FMT says
  * which pixel formats a node offers, G_DV_TIMINGS the geometry of the frame,
  * ENUMINPUT.status and V4L2_EVENT_SOURCE_CHANGE the state of the input.
+ * A 1000/1001 rate is the CEA-861 timings of the whole rate with
+ * V4L2_DV_FL_REDUCED_FPS and the nominal pixel clock, the way
+ * v4l2_calc_timeperframe() reads it; a driver also takes the clock already
+ * divided by 1.001, and flags it the same.
  */
 #ifndef SDI_AV_H
 #define SDI_AV_H
@@ -76,10 +80,13 @@
  * everything in [0]). bytesused = samples per channel * SDI_AUDIO_FRAME_BYTES.
  *
  * Output: the client puts the same layout; the card embeds the sample and
- * the U/C bits, Z and P it sets itself. A field holds 48000 / field rate
- * samples (+1 on the 59.94 cadence): what does not fit is dropped, and
- * audio_samples that do not add up to bytesused (zeros included) are halved
- * by the driver.
+ * the U/C bits, Z and P it sets itself. The audio of the frame is what
+ * audio_samples in the metadata counts, field by field: samples in
+ * bytesused beyond that count are padding and are not played. Without
+ * metadata, with audio_samples of zero, or counting more than bytesused
+ * holds, the driver takes bytesused as the audio and halves it between the
+ * fields. A field holds 48000 / field rate samples, rounded up on the
+ * 1000/1001 rates: what does not fit is dropped.
  */
 #define SDI_AUDIO_CHANNELS	16
 #define SDI_AUDIO_SAMPLE_BYTES	4
