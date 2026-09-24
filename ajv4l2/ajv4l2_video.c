@@ -493,6 +493,8 @@ int ajv4l2_video_register(struct ajv4l2_port *port)
 	q->mem_ops = &vb2_dma_sg_memops;
 	q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
 	ajv4l2_queue_min_buffers(q, 2);
+	/* sdi_av.h: a plane with bytesused 0 is empty in this frame, not whole */
+	q->allow_zero_bytesused = port->output;
 	q->lock = &port->lock;
 	q->dev = &dev->pdev->dev;
 	ret = vb2_queue_init(q);
