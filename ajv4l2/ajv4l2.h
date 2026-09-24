@@ -149,6 +149,8 @@ struct ajv4l2_port {
 	/* output settings, sysfs */
 	bool level_a;			/* 3G as SMPTE 425 level A, else level B */
 	bool reference;			/* lock to the reference input while it carries a signal */
+	bool out_rec2020;		/* colorimetry of frames that state no colour */
+	u8 out_xfer;			/* and their transfer characteristic, NTV2VPIDTransferCharacteristics */
 	bool hdr_stated;		/* a frame has stated its colour: the overrides are on */
 	bool hdr_rec2020;		/* what those overrides currently say */
 	u8 hdr_xfer;			/* NTV2VPIDTransferCharacteristics */

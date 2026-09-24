@@ -233,8 +233,10 @@ static const struct sdi_meta *frame_meta(struct vb2_buffer *vb)
 /*
  * Colour of one frame. Stated as a whole or not at all: a frame setting
  * none of the three flags is not claiming Rec. 709 SDR, it is saying
- * nothing, and then the identifier says whatever the standard implies --
- * which is what every client of this card got before the flags existed.
+ * nothing, and then the node's colorimetry and eotf speak for it. At
+ * rec709 and sdr those override nothing and the identifier says whatever
+ * the standard implies -- which is what every client of this card got
+ * before the flags existed.
  *
  * SDI_F_LEVEL_B is not read: the 3G mapping is the level_a setting of the
  * node, and the card's converter cannot be turned between frames.
@@ -242,11 +244,12 @@ static const struct sdi_meta *frame_meta(struct vb2_buffer *vb)
 static void frame_colour(struct ajv4l2_port *port, const struct sdi_meta *meta)
 {
 	u32 flags = meta ? meta->flags : 0;
-	bool stated = flags & (SDI_F_REC2020 | SDI_F_HLG | SDI_F_PQ);
-	bool rec2020 = stated && (flags & SDI_F_REC2020);
-	u8 xfer = !stated ? NTV2_VPID_TC_SDR_TV :
+	bool by_frame = flags & (SDI_F_REC2020 | SDI_F_HLG | SDI_F_PQ);
+	bool rec2020 = by_frame ? flags & SDI_F_REC2020 : port->out_rec2020;
+	u8 xfer = !by_frame ? port->out_xfer :
 		  (flags & SDI_F_PQ) ? NTV2_VPID_TC_PQ :
 		  (flags & SDI_F_HLG) ? NTV2_VPID_TC_HLG : NTV2_VPID_TC_SDR_TV;
+	bool stated = by_frame || rec2020 || xfer != NTV2_VPID_TC_SDR_TV;
 
 	if (stated == port->hdr_stated && rec2020 == port->hdr_rec2020 && xfer == port->hdr_xfer)
 		return;

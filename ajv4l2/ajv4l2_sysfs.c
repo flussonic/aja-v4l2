@@ -96,6 +96,64 @@ static ssize_t timing_store(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_RW(timing);
 
+/*
+ * Colour of the frames that state none: read by the output thread at the
+ * next frame it transfers.
+ */
+static ssize_t colorimetry_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	return sysfs_emit(buf, "%s\n", port_of(dev)->out_rec2020 ? "rec2020" : "rec709");
+}
+
+static ssize_t colorimetry_store(struct device *dev, struct device_attribute *attr,
+				 const char *buf, size_t count)
+{
+	struct ajv4l2_port *port = port_of(dev);
+
+	if (sysfs_streq(buf, "rec2020"))
+		port->out_rec2020 = true;
+	else if (sysfs_streq(buf, "rec709"))
+		port->out_rec2020 = false;
+	else
+		return -EINVAL;
+	return count;
+}
+static DEVICE_ATTR_RW(colorimetry);
+
+static const struct {
+	const char *name;
+	u8 xfer;
+} eotf_names[] = {
+	{ "sdr", NTV2_VPID_TC_SDR_TV },
+	{ "hlg", NTV2_VPID_TC_HLG },
+	{ "pq", NTV2_VPID_TC_PQ },
+};
+
+static ssize_t eotf_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	u8 xfer = port_of(dev)->out_xfer;
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(eotf_names); i++)
+		if (eotf_names[i].xfer == xfer)
+			break;
+	return sysfs_emit(buf, "%s\n", eotf_names[i < ARRAY_SIZE(eotf_names) ? i : 0].name);
+}
+
+static ssize_t eotf_store(struct device *dev, struct device_attribute *attr,
+			  const char *buf, size_t count)
+{
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(eotf_names); i++)
+		if (sysfs_streq(buf, eotf_names[i].name)) {
+			port_of(dev)->out_xfer = eotf_names[i].xfer;
+			return count;
+		}
+	return -EINVAL;
+}
+static DEVICE_ATTR_RW(eotf);
+
 /* What plays when nothing is queued: the ring keeps the last frame on air. */
 static ssize_t idle_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -143,6 +201,8 @@ static struct attribute *ajv4l2_output_attrs[] = {
 	&dev_attr_signal.attr,
 	&dev_attr_level_a.attr,
 	&dev_attr_timing.attr,
+	&dev_attr_colorimetry.attr,
+	&dev_attr_eotf.attr,
 	&dev_attr_idle.attr,
 	&dev_attr_reference.attr,
 	NULL
