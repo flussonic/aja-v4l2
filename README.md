@@ -126,21 +126,26 @@ padding walks the embedder away from the picture by a sample a frame. Of
 payload identifier for the frames from that one on, through the core's
 own override registers, so nothing else in the identifier changes. Colour
 is stated as a whole or not at all: a frame setting none of the three
-leaves the identifier saying whatever the standard implies, which is what
-every client got before the flags existed. `SDI_F_LEVEL_B` is **not**
+goes out with the node's `colorimetry` and `eotf`; at `rec709` and `sdr`
+those leave the identifier saying whatever the standard implies, which is
+what every client got before the flags existed. `SDI_F_LEVEL_B` is **not**
 read -- the 3G mapping is the `level_a` setting of the node, and the
 card's converter cannot be turned between frames.
 
 The output's standard, link rate (1.5G, 3G, 6G/12G) and payload
 identifier follow the timings set with `S_DV_TIMINGS`. Next to the
-counters, the output node carries in sysfs the settings that have no
-V4L2 control, each read back as written and applied at STREAMON:
+counters, the output node carries in sysfs the settings of the shared
+contract (`docs/sdi-sysfs.md`, section "Output settings"), each read back
+as written; `timing` and `level_a` are applied at once and again at
+STREAMON, the colour pair at the next frame:
 
 | file | values | meaning |
 |---|---|---|
 | `timing` | `reference` (default), `internal` | `reference`: the outputs of the card lock to its reference input while a signal is present there and free-run otherwise; `internal`: the card's own clock. One setting per card |
 | `level_a` | 1 (default), 0 | 3G standards (1080p50/60) as SMPTE 425 level A, or mapped to level B by the output's converter |
-| `idle` | `repeat` | what plays when nothing is queued: the last frame again |
+| `colorimetry` | `rec709` (default), `rec2020` | colorimetry of the frames that state no colour |
+| `eotf` | `sdr` (default), `hlg`, `pq` | transfer characteristic of the frames that state no colour |
+| `idle` | `repeat`, read-only | what plays when nothing is queued: the last frame again |
 | `reference` | read-only | genlock in one word of the shared dictionary: `no_reference` when the reference input carries nothing, `unlocked` when `timing` is `internal` (then the output is certainly not following it), `unknown` otherwise -- the card says a signal is there and not whether it locked to it |
 
 Two limits of the card: its free-running frame pulse has one rate, that
