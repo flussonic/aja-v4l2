@@ -20,7 +20,9 @@
  *     -g N        leave the queue empty for half a second every N frames
  *     -F FLAGS    write the metadata plane with these SDI_F_* flags and the
  *                 audio of each field (0x08 Rec.2020, 0x10 HLG, 0x20 PQ)
- *     -L N        the flags on N frames, none on the next N, and so on
+ *     -L N        the flags and the packets on N frames, none on the next N,
+ *                 and so on; an off frame leaves the ANC plane as the buffer
+ *                 last had it, with bytesused 0
  *     -P PAD      append PAD constant samples the metadata does not declare
  *   Without -i the frames are colour bars with a moving marker, a 1 kHz
  *   and a 2 kHz tone on channels 1 and 2, OP-47 with the frame number,
@@ -448,7 +450,7 @@ static size_t put_anc(uint8_t *plane, size_t off, unsigned int line, uint8_t did
 static struct {
 	bool meta;
 	uint32_t flags;
-	unsigned int alternate;	/* flags on frames 0..N-1, none on N..2N-1, ... */
+	unsigned int alternate;	/* flags and packets on frames 0..N-1, none on N..2N-1, ... */
 	unsigned int pad;
 } play_opt;
 
@@ -485,6 +487,7 @@ static void make_frame(struct plane_mem mem[SDI_NUM_PLANES], size_t used[SDI_NUM
 	uint8_t rp188[16] = { 0 };
 	unsigned int fps = height == 1080 && !interlaced ? 50 : 25, tc = frame, digit;
 	size_t off = 0;
+	bool on = !play_opt.alternate || (frame / play_opt.alternate) % 2 == 0;
 
 	/* ST 12-2: the timecode digits in the upper nibbles of every other word, frames first */
 	digit = tc % fps; tc /= fps;
@@ -514,18 +517,20 @@ static void make_frame(struct plane_mem mem[SDI_NUM_PLANES], size_t used[SDI_NUM
 			s[k] = PAD_SAMPLE;
 	}
 	op47[4] = frame >> 24; op47[5] = frame >> 16; op47[6] = frame >> 8; op47[7] = frame;
-	off = put_anc(anc, off, 9, 0x60, 0x60, SDI_ANC_F_HANC, rp188, sizeof(rp188));
-	off = put_anc(anc, off, 12, 0x43, 0x02, 0, op47, sizeof(op47));
-	off = put_anc(anc, off, 12, 0x41, 0x07, SDI_ANC_F_CHROMA, scte104, sizeof(scte104));
-	if (interlaced) {
-		off = put_anc(anc, off, f2 + 8, 0x60, 0x60, SDI_ANC_F_HANC, rp188, sizeof(rp188));
-		off = put_anc(anc, off, f2 + 12, 0x43, 0x02, 0, op47, sizeof(op47));
-		off = put_anc(anc, off, f2 + 12, 0x41, 0x07, SDI_ANC_F_CHROMA, scte104, sizeof(scte104));
+	if (on) {
+		off = put_anc(anc, off, 9, 0x60, 0x60, SDI_ANC_F_HANC, rp188, sizeof(rp188));
+		off = put_anc(anc, off, 12, 0x43, 0x02, 0, op47, sizeof(op47));
+		off = put_anc(anc, off, 12, 0x41, 0x07, SDI_ANC_F_CHROMA, scte104, sizeof(scte104));
+		if (interlaced) {
+			off = put_anc(anc, off, f2 + 8, 0x60, 0x60, SDI_ANC_F_HANC, rp188, sizeof(rp188));
+			off = put_anc(anc, off, f2 + 12, 0x43, 0x02, 0, op47, sizeof(op47));
+			off = put_anc(anc, off, f2 + 12, 0x41, 0x07, SDI_ANC_F_CHROMA, scte104, sizeof(scte104));
+		}
 	}
 	used[SDI_PLANE_VIDEO] = (size_t)stride * height;
 	used[SDI_PLANE_AUDIO] = (size_t)(samples + play_opt.pad) * SDI_AUDIO_FRAME_BYTES;
 	used[SDI_PLANE_ANC] = off;
-	/* vb2 reads a zero bytesused on output as the whole plane: no metadata is no magic */
+	/* no metadata is a plane without the magic */
 	memset(mem[SDI_PLANE_META].p, 0, SDI_META_SIZE);
 	used[SDI_PLANE_META] = SDI_META_SIZE;
 	used[SDI_PLANE_VBI] = 0;
@@ -534,7 +539,7 @@ static void make_frame(struct plane_mem mem[SDI_NUM_PLANES], size_t used[SDI_NUM
 
 		m->magic = SDI_META_MAGIC;
 		m->version = SDI_META_VERSION;
-		m->flags = play_opt.alternate && (frame / play_opt.alternate) % 2 ? 0 : play_opt.flags;
+		m->flags = on ? play_opt.flags : 0;
 		m->audio_samples[0] = interlaced ? (samples + 1) / 2 : samples;
 		m->audio_samples[1] = interlaced ? samples / 2 : 0;
 	}

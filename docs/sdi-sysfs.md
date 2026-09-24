@@ -1,9 +1,9 @@
-# Counters and state of an SDI node in sysfs
+# Counters, state and settings of an SDI node in sysfs
 
 Companion of `sdi_av.h`: that file says what a frame is, this one says what a
-node tells about itself between frames. Both are the same, byte for byte, in
-every driver that follows the contract and in the client, so one piece of code
-monitors any card.
+node tells about itself between frames and how a playout node is set up. Both
+are the same, byte for byte, in every driver that follows the contract and in
+the client, so one piece of code monitors and configures any card.
 
 The attributes live next to the node, in
 `/sys/class/video4linux/video<N>/`. Every one of them is a plain text file:
@@ -94,15 +94,47 @@ The detected standard of the reference signal, when the card reports one, goes
 to a separate attribute of the driver's own, because it is a text for a person
 and not a state for a program.
 
+## Output settings
+
+What a client sets per frame it sets in the frame, through the metadata plane
+of `sdi_av.h`. What is set once for a playout node is here, next to its
+counters, under the names below. Every card offers a different subset, so
+each setting of every node is in one of three states, and the file itself says
+which:
+
+- **writable** (mode `0644`): the card can change it. The file reads back what
+  was last written.
+- **read-only** (mode `0444`): the card does it one way and cannot be told
+  otherwise. The file names that way, so a client that wants another one
+  learns it cannot have it by reading a file before it streams, not by a frame
+  going out wrong.
+- **absent**: the setting means nothing on this card -- a card without a
+  reference input has no `timing`. Reading it gives `ENOENT`.
+
+A write outside the values of the table is refused with `EINVAL`; a
+read-only file does not open for writing at all (`EACCES`). A setting belongs
+to the node, not to a file handle or a streaming session: opening and closing
+the node, STREAMON and STREAMOFF leave it alone, and it keeps its value until
+the driver is unloaded. A write takes effect at the next STREAMON at the
+latest, and on a streaming node as soon as the card allows; the driver's
+documentation names the settings that wait.
+
+| attribute | values | meaning |
+| --- | --- | --- |
+| `timing` | `reference`, `internal` | what times the output: `reference` follows the board's reference input while a signal is there and runs on the card's own clock while it is not; `internal` is the card's own clock whatever the reference input carries. Whether the output follows the reference right now is `reference`. |
+| `reference_offset` | integer, pixels | where the output frame sits against the reference signal, as the card counts it; 0 is aligned. |
+| `clock_adjust` | integer, ppm | trims the card's own clock. The range is the card's, and a value beyond it is `EINVAL`. |
+| `level_a` | `1`, `0` | the 3G mapping of 1080p at 50, 59.94 and 60 frames: `1` SMPTE 425 level A, `0` level B, for every frame that does not set `SDI_F_LEVEL_B`. |
+| `colorimetry` | `rec709`, `rec2020` | the colorimetry in the payload identifier of every frame that states no colour (`sdi_av.h`). |
+| `eotf` | `sdr`, `hlg`, `pq` | the transfer characteristic in the payload identifier of every frame that states no colour. |
+| `idle` | `repeat`, `black` | what goes on the wire when the client has no new frame queued: the last frame again, or black. |
+
+`reference_offset` and `clock_adjust` are signed decimal numbers, `level_a`
+is `1` or `0`, the rest are words. A capture node has none of these: what it
+receives is what the source sent.
+
 ## What is not here
 
-Settings are not part of this contract. Frame timing, clock adjustment, the 3G
-mapping, what the card puts on the wire when nothing is queued -- every card
-offers a different subset of those, they are written as well as read, and a
-client that has to know which ones exist is back to asking the card by name.
-What a client sets per frame it sets in the frame, through the metadata plane
-of `sdi_av.h`; what is set once for the node stays a vendor attribute.
-
-The card's identity is not here either: it is `VIDIOC_QUERYCAP` and the media
+The card's identity is not here: it is `VIDIOC_QUERYCAP` and the media
 device (`MEDIA_IOC_DEVICE_INFO`). Its temperature and voltages are a hwmon
 device, where a monitoring system already knows to look.
