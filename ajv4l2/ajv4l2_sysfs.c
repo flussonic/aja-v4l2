@@ -7,7 +7,8 @@
  * docs/sdi-sysfs.md, shared with our other SDI drivers. All are since the
  * last STREAMON. Next to them the input (or the output's state) as text,
  * the state of the reference input as one word of the dictionary and, on an
- * output node, the settings that have no V4L2 control.
+ * output node, the settings that have no V4L2 control, the HDMI output
+ * among them.
  *
  * What is not here is as deliberate as what is: this card reports no
  * resync, no loss of sync, no missed interrupt and no restart, and its
@@ -179,6 +180,71 @@ static ssize_t reference_show(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_RO(reference);
 
+/*
+ * Of this driver: the HDMI output. The card has one and no frame store for
+ * it, so it mirrors an SDI output -- the picture and the eight lower audio
+ * channels of the output whose hdmi is 1, while that output plays, and
+ * black otherwise. One output at a time: turning it on at a second one is
+ * EBUSY until the first lets it go.
+ */
+static DEFINE_MUTEX(hdmi_lock);
+
+static ssize_t hdmi_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	return sysfs_emit(buf, "%d\n", port_of(dev)->hdmi ? 1 : 0);
+}
+
+static ssize_t hdmi_store(struct device *dev, struct device_attribute *attr,
+			  const char *buf, size_t count)
+{
+	struct ajv4l2_port *port = port_of(dev);
+	struct ajv4l2_device *card = port->dev;
+	unsigned int i;
+	bool v;
+
+	if (kstrtobool(buf, &v))
+		return -EINVAL;
+	mutex_lock(&hdmi_lock);
+	for (i = 0; v && i < card->num_ports; i++) {
+		const struct ajv4l2_port *other = card->ports[i];
+
+		if (other && other != port && other->hdmi) {
+			mutex_unlock(&hdmi_lock);
+			return -EBUSY;
+		}
+	}
+	if (port->hdmi != v) {
+		port->hdmi = v;
+		if (port->streaming)
+			ajv4l2_hw_set_hdmi(port, v);
+	}
+	mutex_unlock(&hdmi_lock);
+	return count;
+}
+static DEVICE_ATTR_RW(hdmi);
+
+/* Whether the HDMI output sees a sink on its connector (hot plug). */
+static ssize_t hdmi_sink_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	return sysfs_emit(buf, "%s\n", ajv4l2_hw_hdmi_sink(port_of(dev)->dev) ? "present" : "absent");
+}
+static DEVICE_ATTR_RO(hdmi_sink);
+
+/* The sink's EDID in hex, as the transmitter read it at the last hot plug; empty without one. */
+static ssize_t hdmi_edid_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	u8 edid[256];
+	size_t i, n = ajv4l2_hw_hdmi_edid(port_of(dev)->dev, edid, sizeof(edid));
+	int len = 0;
+
+	if (!n)
+		return 0;
+	for (i = 0; i < n; i++)
+		len += sysfs_emit_at(buf, len, "%02x", edid[i]);
+	return len + sysfs_emit_at(buf, len, "\n");
+}
+static DEVICE_ATTR_RO(hdmi_edid);
+
 static struct attribute *ajv4l2_port_attrs[] = {
 	&dev_attr_frames.attr,
 	&dev_attr_frames_skipped.attr,
@@ -205,11 +271,26 @@ static struct attribute *ajv4l2_output_attrs[] = {
 	&dev_attr_eotf.attr,
 	&dev_attr_idle.attr,
 	&dev_attr_reference.attr,
+	&dev_attr_hdmi.attr,
+	&dev_attr_hdmi_sink.attr,
+	&dev_attr_hdmi_edid.attr,
 	NULL
 };
 
+/* The HDMI files only where the card has an HDMI output to drive. */
+static umode_t ajv4l2_output_visible(struct kobject *kobj, struct attribute *attr, int n)
+{
+	struct ajv4l2_port *port = port_of(kobj_to_dev(kobj));
+
+	if ((attr == &dev_attr_hdmi.attr || attr == &dev_attr_hdmi_sink.attr ||
+	     attr == &dev_attr_hdmi_edid.attr) && !ajv4l2_hw_has_hdmi(port->dev))
+		return 0;
+	return attr->mode;
+}
+
 static const struct attribute_group ajv4l2_output_group = {
 	.attrs = ajv4l2_output_attrs,
+	.is_visible = ajv4l2_output_visible,
 };
 
 static const struct attribute_group *group_of(struct ajv4l2_port *port)

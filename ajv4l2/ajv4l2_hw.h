@@ -16,5 +16,9 @@ void ajv4l2_hw_set_timecode_output(struct ajv4l2_port *port, bool on);
 unsigned int ajv4l2_hw_output_event(unsigned int ch);
 u32 ajv4l2_hw_audio_present(struct ajv4l2_port *port);
 NTV2FrameBufferFormat ajv4l2_hw_fbf(u32 pixfmt);
+bool ajv4l2_hw_has_hdmi(struct ajv4l2_device *dev);
+void ajv4l2_hw_set_hdmi(struct ajv4l2_port *port, bool on);
+bool ajv4l2_hw_hdmi_sink(struct ajv4l2_device *dev);
+size_t ajv4l2_hw_hdmi_edid(struct ajv4l2_device *dev, u8 *buf, size_t len);
 
 #endif

@@ -512,6 +512,9 @@ void ajv4l2_output_stop(struct ajv4l2_port *port)
 		port->thread = NULL;
 	}
 	OemAutoCirculateAbort(dev->device_number, output_xpt(port->index));
+	/* the frame store may capture next: the HDMI output does not show that */
+	if (port->hdmi)
+		ajv4l2_hw_set_hdmi(port, false);
 	ajv4l2_anc_bounce_free(port);
 	/* the connector is an input again for its capture node */
 	if (port->sibling)
