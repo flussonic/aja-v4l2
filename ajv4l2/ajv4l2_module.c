@@ -94,6 +94,14 @@ static int ajv4l2_register(struct ajv4l2_device *dev)
 	unsigned int i, inputs, outputs;
 	int ret;
 
+	/*
+	 * A descriptor of the card's DMA takes a scatter segment whole
+	 * (dmaVideoSegmentDescriptor()), its length in a 28-bit field: bytes
+	 * on the Xilinx engine, words on AJA's own. vb2-dma-sg hands out
+	 * segments up to 2 MiB, past the 64 KiB a device is taken to support
+	 * when it says nothing.
+	 */
+	dma_set_max_seg_size(&dev->pdev->dev, SZ_256M - PAGE_SIZE);
 	ajv4l2_media_init(dev);
 	ret = v4l2_device_register(&dev->pdev->dev, &dev->v4l2_dev);
 	if (ret) {
