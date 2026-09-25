@@ -15,7 +15,7 @@
 # and the compiler flags are in Kbuild.
 
 MODULE         := ajv4l2
-AJV4L2_VERSION := 26.09.0
+AJV4L2_VERSION := 26.09.1
 export AJV4L2_VERSION
 KVER  ?= $(shell uname -r)
 KDIR  ?= /lib/modules/$(KVER)/build

@@ -1,3 +1,14 @@
+ajv4l2 (26.09.1) unstable; urgency=medium
+
+  * HDMI output as a mirror of an SDI output: an hdmi file on every SDI
+    output node puts that output's picture and eight audio channels on the
+    KONA 5 HDMI connector, one output at a time; hdmi_sink and hdmi_edid
+    tell the sink and its EDID.
+  * The DMA segment length the card's descriptors take is declared: the
+    DMA API debug checks flagged every 2 MiB segment of vb2-dma-sg.
+
+ -- Max Lapshin <max@flussonic.com>  Fri, 25 Sep 2026 12:49:10 +0000
+
 ajv4l2 (26.09.0) unstable; urgency=medium
 
   * First release. Capture and output nodes for every SDI connector of a
