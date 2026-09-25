@@ -2,8 +2,9 @@
 // Copyright (C) 2026 Max Lapshin <max@flussonic.com>
 /*
  * What the frame store, the crosspoints and the audio system of a channel
- * are told before a capture or a playout: the same register writes the
- * SDK makes for a capture or a player application, done in the kernel.
+ * are told before a capture or a playout, and the HDMI output mirroring a
+ * playout: the same register writes the SDK makes for a capture or a player
+ * application, done in the kernel.
  * The card runs in independent ("multi-format") mode, so every channel
  * has its own standard. The SDI outputs themselves are kept by the core's
  * output monitor task, which derives the standard, the link rate and the
@@ -12,6 +13,7 @@
  */
 #include "ajv4l2_hw.h"
 #include "ntv2rp188.h"
+#include "ntv2hdmiout4.h"
 
 static const u32 global_control_reg[8] = {
 	kRegGlobalControl, kRegGlobalControlCh2, kRegGlobalControlCh3, kRegGlobalControlCh4,
@@ -207,6 +209,40 @@ void ajv4l2_hw_set_level(struct ajv4l2_port *port)
 	   kRegMaskSDIOutLevelAtoLevelB, kRegShiftSDIOutLevelAtoLevelB);
 }
 
+/* Exported by ntv2hdmiout4.c, which its header does not declare. */
+bool ntv2_hdmiout4_edid_read(void *context, uint8_t block_num, uint8_t reg_num, uint8_t *reg_val);
+
+/* Whether the monitor of the HDMI output sees a sink on the connector. */
+bool ajv4l2_hw_hdmi_sink(struct ajv4l2_device *dev)
+{
+	struct ntv2_hdmiout4 *mon = dev->pp->m_pHDMIOut4Monitor[0];
+
+	return mon && READ_ONCE(mon->sink_present);
+}
+
+/*
+ * The EDID of the sink as the transmitter read it on the last hot plug,
+ * two blocks at most; 0 bytes without a sink. Each byte is a round trip
+ * through the transmitter's EDID engine.
+ */
+size_t ajv4l2_hw_hdmi_edid(struct ajv4l2_device *dev, u8 *buf, size_t len)
+{
+	struct ntv2_hdmiout4 *mon = dev->pp->m_pHDMIOut4Monitor[0];
+	size_t n = 0, blocks = 1;
+
+	if (!mon || !READ_ONCE(mon->sink_present))
+		return 0;
+	while (n < blocks * 128 && n < len) {
+		if (!ntv2_hdmiout4_edid_read(mon, n / 128, n % 128, &buf[n]))
+			break;
+		/* byte 126 of the base block counts the extension blocks that follow */
+		if (n == 126)
+			blocks = min_t(size_t, 1 + buf[126], 2);
+		n++;
+	}
+	return n;
+}
+
 /*
  * The card has one free-running frame pulse, and its rate is the frame
  * rate of channel 1: an output on another channel runs at that pulse
@@ -223,6 +259,52 @@ static void set_free_run_rate(struct ajv4l2_port *port)
 		return;
 	wr(port, kRegGlobalControl, m->rate & 0x7, kRegMaskFrameRate, kRegShiftFrameRate);
 	wr(port, kRegGlobalControl, (m->rate >> 3) & 1, kRegMaskFrameRateHiBit, kRegShiftFrameRateHiBit);
+}
+
+/* Whether the card has an HDMI output of the fourth generation, and the core monitors it. */
+bool ajv4l2_hw_has_hdmi(struct ajv4l2_device *dev)
+{
+	return NTV2DeviceGetNumHDMIVideoOutputs(dev->device_id) >= 1 &&
+	       NTV2DeviceGetHDMIVersion(dev->device_id) >= 4 && dev->pp->m_pHDMIOut4Monitor[0];
+}
+
+/*
+ * The HDMI output mirrors an SDI output: the frame store of that output is
+ * routed to it too, and so are the eight lower channels of its audio system,
+ * 48 kHz PCM, as the SDK sets them for an HDMI v4 output. Only the source is
+ * set here: the core's setup task follows the route to the frame store and
+ * gives the transmitter its standard, rate and colour on every pass, and the
+ * HDMI output monitor programs the transmitter from those and from the
+ * sink's EDID. Turned off, the HDMI output plays black.
+ */
+void ajv4l2_hw_set_hdmi(struct ajv4l2_port *port, bool on)
+{
+	struct ajv4l2_device *dev = port->dev;
+	unsigned int ch = port->index;
+
+	if (!ajv4l2_hw_has_hdmi(dev))
+		return;
+	/* nothing on the quadrant inputs of a quad link */
+	wr(port, kRegXptSelectGroup6, on ? fb_yuv_xpt[ch] : NTV2_XptBlack, kK2RegMaskHDMIOutInputSelect,
+	   kK2RegShiftHDMIOutInputSelect);
+	wr(port, kRegXptSelectGroup20, NTV2_XptBlack, kK2RegMaskHDMIOutV2Q2InputSelect,
+	   kK2RegShiftHDMIOutV2Q2InputSelect);
+	wr(port, kRegXptSelectGroup20, NTV2_XptBlack, kK2RegMaskHDMIOutV2Q3InputSelect,
+	   kK2RegShiftHDMIOutV2Q3InputSelect);
+	wr(port, kRegXptSelectGroup20, NTV2_XptBlack, (u32)kK2RegMaskHDMIOutV2Q4InputSelect,
+	   (u32)kK2RegShiftHDMIOutV2Q4InputSelect);
+	if (!on)
+		return;
+	wr(port, kRegHDMIInputControl, ch, kRegMaskHDMIOutSourceSelect, kRegShiftHDMIOutSourceSelect);
+	wr(port, kRegHDMIInputControl, NTV2_AUDIO_48K, kRegMaskHDMIOutAudioRate, kRegShiftHDMIOutAudioRate);
+	wr(port, kRegHDMIOutControl, NTV2_AudioChannel1_8, kRegMaskHDMIOut8ChGroupSelect,
+	   kRegShiftHDMIOut8ChGroupSelect);
+	wr(port, kRegHDMIOutControl, NTV2_HDMIAudio8Channels, kRegMaskHDMIOutAudioCh,
+	   kRegShiftHDMIOutAudioCh);
+	wr(port, kRegHDMIOutControl, NTV2_AUDIO_FORMAT_LPCM, kRegMaskHDMIOutAudioFormat,
+	   kRegShiftHDMIOutAudioFormat);
+	/* the standard at once, rather than at the setup task's next pass */
+	SetHDMIOutputStandard(dev->ctx, NTV2_CHANNEL1);
 }
 
 int ajv4l2_hw_setup_output(struct ajv4l2_port *port)
@@ -263,6 +345,8 @@ int ajv4l2_hw_setup_output(struct ajv4l2_port *port)
 	ajv4l2_hw_set_hdr(port, false, false, NTV2_VPID_TC_SDR_TV);
 	port->timecode_output = true;
 	ajv4l2_hw_set_timecode_output(port, false);
+	if (port->hdmi)
+		ajv4l2_hw_set_hdmi(port, true);
 	AvInterruptControl(dev->device_number, ajv4l2_hw_output_event(ch), 1);
 	return 0;
 }

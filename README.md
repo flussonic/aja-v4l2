@@ -156,6 +156,34 @@ share the frame size of channel 1, so a 2160p stream and an HD stream
 cannot run on two connectors of the same group at once (the second
 STREAMON fails with EBUSY).
 
+### The HDMI output
+
+A KONA 5 (and any card whose HDMI output is of the fourth generation or
+later) has one HDMI output and no frame store for it, so the driver gives
+it no node of its own: it mirrors one of the SDI outputs. Each output node
+carries three more files of this driver:
+
+| file | values | meaning |
+|---|---|---|
+| `hdmi` | 0 (default), 1 | the HDMI output plays what this output plays, picture and audio; one output at a time, a second 1 is `EBUSY` until the first goes back to 0. Applied at once and at STREAMON; black while the output does not stream |
+| `hdmi_sink` | `present`, `absent`, read-only | whether a sink is on the HDMI connector (hot plug) |
+| `hdmi_edid` | hex, read-only | the sink's EDID as the transmitter read it at the last hot plug, two blocks at most; empty without a sink |
+
+```sh
+echo 1 > /sys/class/video4linux/video7/hdmi        # SDI out 4 on HDMI too
+tools/ajav play /dev/video7 -t 1080p50 -n 250      # bars and a tone on SDI 4 and HDMI
+cat /sys/class/video4linux/video7/hdmi_edid | xxd -r -p | edid-decode
+```
+
+The HDMI output gets the frame store of the output and the eight lower
+channels of its audio system, channels 0-7 of the audio plane, 48 kHz
+PCM. The standard, the rate and the colour of the transmitter follow from
+that route through the driver core's own setup task, and the core's HDMI
+monitor programs the transmitter from them and from the sink's EDID on
+every hot plug -- the same tasks the vendor's driver runs. What SDI alone
+carries stays on SDI: the ancillary packets, the payload identifier and
+the timecode; no HDR InfoFrame goes to the sink.
+
 ## State
 
 Brought up on a KONA 5 (8K firmware) under Ubuntu 24.04 with kernel 6.14,
@@ -171,8 +199,13 @@ audio, every ANC packet in every frame, the payload identifier of each
 link rate and the ATC timecode. At 2160p50 the output's kernel thread
 takes 0.5% of a core: video goes by DMA straight from the buffer, the
 two-sample interleave and the v210 packing are the FPGA's, and only the
-audio and ANC pass through a bounce buffer. Not done yet: the SD VBI
-plane, SD on a live signal, 3G level B on the input, `idle=black`.
+audio and ANC pass through a bounce buffer. The HDMI output mirrored
+SDI out 4 at 1080p50 with the route, the audio source (audio system 4,
+eight channels, 48 kHz PCM) and the standard in the transmitter's
+registers as set -- with no sink on the connector: the picture on the
+wire, the EDID and the hot plug with a sink attached are not verified,
+nor 2160p on HDMI. Not done yet: the SD VBI plane, SD on a live signal,
+3G level B on the input, `idle=black`, HDR on HDMI.
 
 ## Counters
 
