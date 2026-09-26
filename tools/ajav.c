@@ -24,6 +24,11 @@
  *                 and so on; an off frame leaves the ANC plane as the buffer
  *                 last had it, with bytesused 0
  *     -P PAD      append PAD constant samples the metadata does not declare
+ *     -M          the marker on every line rather than lines 8..71, and every
+ *                 line stamped at both ends with the frame and line numbers,
+ *                 48 pixel pairs of black and white, most significant first:
+ *                 a receiver that joins two frames, tears a line between them
+ *                 or moves a line shows it
  *   Without -i the frames are colour bars with a moving marker, a 1 kHz
  *   and a 2 kHz tone on channels 1 and 2, OP-47 with the frame number,
  *   SCTE-104 and an RP188 timecode counting the frames; the payload
@@ -389,7 +394,7 @@ static int cmd_cap(int argc, char **argv)
 /* play */
 
 static void bars_line(uint8_t *line, unsigned int width, uint32_t fmt, unsigned int x,
-		      unsigned int y)
+		      bool marked, uint64_t stamp, unsigned int stamp_bits)
 {
 	static const uint8_t bars[8][3] = {	/* Y Cb Cr, 75% bars */
 		{ 180, 128, 128 }, { 162, 44, 142 }, { 131, 156, 44 }, { 112, 72, 58 },
@@ -401,8 +406,14 @@ static void bars_line(uint8_t *line, unsigned int width, uint32_t fmt, unsigned 
 		const uint8_t *b = bars[i * 8 / width];
 		uint8_t yy = b[0], cb = b[1], cr = b[2];
 
-		if (i >= x && i < x + 32 && y >= 8 && y < 72) {
+		if (marked && i >= x && i < x + 32) {
 			yy = 235; cb = 128; cr = 128;
+		}
+		if (i / 2 < stamp_bits || i / 2 >= width / 2 - stamp_bits) {
+			unsigned int bit = i / 2 < stamp_bits ? i / 2 : i / 2 - (width / 2 - stamp_bits);
+
+			yy = (stamp >> (stamp_bits - 1 - bit)) & 1 ? 235 : 16;
+			cb = 128; cr = 128;
 		}
 		if (fmt == SDI_PIX_FMT_UYVY) {
 			line[i * 2] = cb; line[i * 2 + 1] = yy; line[i * 2 + 2] = cr; line[i * 2 + 3] = yy;
@@ -452,6 +463,7 @@ static struct {
 	uint32_t flags;
 	unsigned int alternate;	/* flags and packets on frames 0..N-1, none on N..2N-1, ... */
 	unsigned int pad;
+	bool tall;	/* the marker and the stamp on every line */
 } play_opt;
 
 #define PAD_SAMPLE	0x40000000
@@ -501,7 +513,9 @@ static void make_frame(struct plane_mem mem[SDI_NUM_PLANES], size_t used[SDI_NUM
 
 	memset(video, 0, (size_t)stride * height);
 	for (i = 0; i < height; i++)
-		bars_line(video + (size_t)i * stride, width, pix->pixelformat, frame % (width - 32), i);
+		bars_line(video + (size_t)i * stride, width, pix->pixelformat, frame % (width - 32),
+			  play_opt.tall || (i >= 8 && i < 72),
+			  (uint64_t)frame << 16 | i, play_opt.tall ? 48 : 0);
 	for (i = 0; i < samples; i++, (*phase)++) {
 		int32_t *s = audio + (size_t)i * SDI_AUDIO_CHANNELS;
 
@@ -583,12 +597,13 @@ static int cmd_play(int argc, char **argv)
 
 	optind = 1;
 	memset(&play_opt, 0, sizeof(play_opt));
-	while ((opt = getopt(argc, argv, "n:f:t:i:g:F:L:P:")) != -1) {
+	while ((opt = getopt(argc, argv, "n:f:t:i:g:F:L:P:M")) != -1) {
 		switch (opt) {
 		case 'n': count = atoi(optarg); break;
 		case 'F': play_opt.meta = true; play_opt.flags = strtoul(optarg, NULL, 0); break;
 		case 'L': play_opt.alternate = atoi(optarg); break;
 		case 'P': play_opt.pad = atoi(optarg); break;
+		case 'M': play_opt.tall = true; break;
 		case 'f': pixfmt = !strcmp(optarg, "v210") ? SDI_PIX_FMT_V210 : SDI_PIX_FMT_UYVY; break;
 		case 't': name = optarg; break;
 		case 'i': in_dir = optarg; break;
@@ -763,6 +778,6 @@ int main(int argc, char **argv)
 	if (argc >= 3 && !strcmp(argv[1], "play"))
 		return cmd_play(argc - 2, argv + 2);
 	fprintf(stderr, "usage: ajav info /dev/videoN | ajav cap /dev/videoN [-n N] [-f uyvy|v210] [-t STD] [-u] [-a] [-A] [-o DIR]\n"
-			"       ajav play /dev/videoN [-n N] [-f uyvy|v210] [-t STD] [-i DIR] [-g N] [-F FLAGS] [-L N] [-P PAD]\n");
+			"       ajav play /dev/videoN [-n N] [-f uyvy|v210] [-t STD] [-i DIR] [-g N] [-F FLAGS] [-L N] [-P PAD] [-M]\n");
 	return 2;
 }
